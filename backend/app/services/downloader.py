@@ -57,7 +57,15 @@ _AUTH_MARKERS = (
     "age restricted",
 )
 _GEO_MARKERS = ("not available in your country", "geo restricted", "geo-restricted")
-_UNSUPPORTED_MARKERS = ("unsupported url", "no suitable extractor", "no video formats found")
+_UNSUPPORTED_MARKERS = ("unsupported url", "no suitable extractor")
+_FORMAT_MARKERS = (
+    "no video formats found",
+    "requested format is not available",
+    "only images are available",
+    "signature solving failed",
+    "n challenge solving failed",
+    "sabr streaming",
+)
 _COOKIE_BROWSERS = (
     "brave",
     "chrome",
@@ -173,6 +181,13 @@ def _classify_error(
             "This video is region-locked and isn't available from this server.",
             code="region_locked",
             retryable=False,
+        )
+    if any(marker in message for marker in _FORMAT_MARKERS):
+        return MediaFetchError(
+            "YouTube didn't provide downloadable formats. Install Node.js and the "
+            "yt-dlp-ejs solver (pip install -r backend/requirements.txt), then retry.",
+            code="formats_unavailable",
+            retryable=True,
         )
     if any(marker in message for marker in _UNSUPPORTED_MARKERS):
         return MediaFetchError(

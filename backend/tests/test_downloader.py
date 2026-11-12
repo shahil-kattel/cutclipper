@@ -87,3 +87,13 @@ def test_bot_check_is_classified_as_authentication() -> None:
     )
     assert error.code == "auth_required"
     assert error.retryable is False
+
+
+def test_missing_youtube_formats_explains_the_solver_dependency() -> None:
+    error = _classify_error(
+        "ERROR: [youtube] abc: No video formats found! Signature solving failed.",
+        action="download the video",
+    )
+    assert error.code == "formats_unavailable"
+    assert "yt-dlp-ejs" in error.message
+    assert "Node.js" in error.message

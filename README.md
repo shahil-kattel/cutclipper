@@ -376,6 +376,9 @@ CUTCLIPPER_YTDLP_COOKIES_FROM_BROWSER=chrome   # or safari, firefox, edge…
 
 Alternatively, export a Netscape-format `cookies.txt` from a signed-in browser and either drop it at `backend/data/cookies.txt` (no env var needed) or set `CUTCLIPPER_YTDLP_COOKIES_FILE=/path/to/cookies.txt`. Restart the backend after changing `.env`, and make sure the browser account can actually play the video. Cookies stay on your machine; CutClipper never uploads them. Public videos normally work without cookies. Keep yt-dlp current with `pip install -U yt-dlp`.
 
+### YouTube lists only storyboards / “no video formats”
+YouTube now gates many streams behind a JavaScript challenge. CutClipper installs the `yt-dlp-ejs` solver and uses Node.js when it is available. If a download still reports missing formats, install Node.js (`brew install node`) and run `pip install -r backend/requirements.txt` so `yt-dlp-ejs` is present, then restart the backend.
+
 ### A direct `.mp4` link fails
 CutClipper first tries a native HTTP probe/download and falls back to yt-dlp. If the host requires signed cookies, a special User-Agent, or blocks this server's region, download the file and use **Upload a file**, or host it somewhere public.
 

@@ -5,6 +5,7 @@ pydantic-settings>=2.10,<3
 python-multipart>=0.0.20,<1
 httpx>=0.28,<1
 yt-dlp>=2025.10.22
+yt-dlp-ejs>=0.8,<1
 faster-whisper>=1.2,<2
 numpy>=1.26,<3
 opencv-python>=4.10,<5
