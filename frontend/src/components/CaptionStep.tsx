@@ -447,7 +447,7 @@ export function CaptionStep({
                   <p className="mb-1.5 text-[11.5px] font-medium text-ink-soft">
                     Transcription accuracy
                   </p>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-4 gap-1.5">
                     {qualityOptionsFor(language).map((option) => (
                       <button
                         key={option.value}
@@ -500,9 +500,9 @@ export function CaptionStep({
                 {transcript?.translated
                   ? 'English translation ready. Edit any line below before rendering; the selected animations are applied to the English captions.'
                   : task === 'translate'
-                    ? 'Whisper translates the spoken audio to English in one pass. Use Best for harder audio.'
+                    ? 'Whisper translates the spoken audio to English in one pass. Use Maximum (large-v3) for the most accurate translation; it is the slowest option.'
                     : language === 'ne'
-                      ? 'Nepali defaults to the fast small model on Metal/int8. Best switches to medium for harder audio.'
+                      ? 'Nepali defaults to the fast small model on Metal/int8. Best uses medium; Maximum uses large-v3 (most accurate, slowest, ~3 GB first run).'
                       : transcript?.language
                         ? `Detected: ${transcript.language.toUpperCase()}. Fast / balanced / best map to base / small / medium.`
                         : 'Fast / balanced / best map to base / small / medium. Balanced is a good default.'}
