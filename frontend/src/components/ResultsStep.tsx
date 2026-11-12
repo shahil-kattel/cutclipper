@@ -25,9 +25,16 @@ interface ResultsStepProps {
   onNewProject: () => void
   onEditSettings: () => void
   onRestyle: (captions: CaptionSettings) => Promise<void>
+  canEditSettings?: boolean
 }
 
-export function ResultsStep({ job, onNewProject, onEditSettings, onRestyle }: ResultsStepProps) {
+export function ResultsStep({
+  job,
+  onNewProject,
+  onEditSettings,
+  onRestyle,
+  canEditSettings = true,
+}: ResultsStepProps) {
   const toast = useToast()
   const [editingCaptions, setEditingCaptions] = useState(false)
   const clips = [...job.clips].sort((a, b) => a.index - b.index)
@@ -104,9 +111,11 @@ export function ResultsStep({ job, onNewProject, onEditSettings, onRestyle }: Re
               Edit captions before export
             </Button>
           ) : null}
-          <Button variant="ghost" size="sm" onClick={onEditSettings} icon={ArrowLeft}>
-            {captionMode ? 'Edit caption lines' : 'Adjust cut settings'}
-          </Button>
+          {canEditSettings ? (
+            <Button variant="ghost" size="sm" onClick={onEditSettings} icon={ArrowLeft}>
+              {captionMode ? 'Edit caption lines' : 'Adjust cut settings'}
+            </Button>
+          ) : null}
           <Button variant="secondary" size="sm" onClick={onNewProject} icon={RotateCcw}>
             New video
           </Button>

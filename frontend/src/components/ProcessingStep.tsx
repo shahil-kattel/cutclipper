@@ -182,6 +182,7 @@ interface ProcessingStepProps {
   onCancel: () => void
   onBack: () => void
   onRetry: () => void
+  canRetry?: boolean
   onStartOver: () => void
   onBackToPrevious?: () => void
 }
@@ -194,6 +195,7 @@ export function ProcessingStep({
   onCancel,
   onBack,
   onRetry,
+  canRetry = true,
   onStartOver,
   onBackToPrevious,
 }: ProcessingStepProps) {
@@ -237,6 +239,7 @@ export function ProcessingStep({
         generating={generating}
         onBack={onBack}
         onRetry={onRetry}
+        canRetry={canRetry}
         onStartOver={onStartOver}
         onBackToPrevious={onBackToPrevious}
       />
@@ -280,7 +283,11 @@ export function ProcessingStep({
                   : 'Cutting your moments.'}
             </h1>
             <span className="mb-1.5 hidden -rotate-2 font-hand text-[18px] text-ink-soft sm:inline">
-              {isComplete ? 'almost there' : restyleJob ? 'same cut, new look' : 'the scissors are busy'}
+              {isComplete
+                ? 'almost there'
+                : restyleJob
+                  ? 'same cut, new look'
+                  : 'the scissors are busy'}
             </span>
           </div>
           <p className="mt-2 max-w-xl text-sm leading-6 text-ink-soft">
@@ -484,7 +491,7 @@ export function ProcessingStep({
           <Sparkles className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
           {restyleJob
             ? 'Only the caption layer is re-rendering. Your original cut stays fixed.'
-            : 'Rendering can take a few minutes on longer videos. Keep this tab open.'}
+            : 'Rendering runs on the server — close this tab or switch apps if you need to. We will keep going.'}
         </span>
         <span className="tabular-nums">
           {job?.clips.length ?? 0} of {job?.settings.clip_count ?? 0} clips encoded
@@ -579,6 +586,7 @@ function FailureState({
   generating,
   onBack,
   onRetry,
+  canRetry,
   onStartOver,
   onBackToPrevious,
 }: {
@@ -586,6 +594,7 @@ function FailureState({
   generating: boolean
   onBack: () => void
   onRetry: () => void
+  canRetry: boolean
   onStartOver: () => void
   onBackToPrevious?: () => void
 }) {
@@ -631,9 +640,11 @@ function FailureState({
           </p>
         ) : null}
         <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-          <Button onClick={onRetry} loading={generating} icon={RefreshCw} disabled={generating}>
-            {cancelled ? 'Resume with same settings' : 'Try again'}
-          </Button>
+          {canRetry ? (
+            <Button onClick={onRetry} loading={generating} icon={RefreshCw} disabled={generating}>
+              {cancelled ? 'Resume with same settings' : 'Try again'}
+            </Button>
+          ) : null}
           <Button variant="secondary" onClick={onBack} icon={ArrowLeft} disabled={generating}>
             Back to settings
           </Button>

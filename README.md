@@ -82,6 +82,7 @@ Link sources are fetched by the backend. Optional file uploads are stored only i
 ### Export
 - H.264 High profile, AAC 192 kbps, `yuv420p`, faststart, 30 fps, metadata stripped.
 - 1080-wide social masters.
+- Jobs run on the server. Closing the tab, switching apps, or reloading is safe: the render continues, and the app reconnects to the active job (or restores the finished export) when you come back.
 - Browser preview and per-clip download.
 - Server-built ZIP archive for all clips.
 - No watermark, logo, drawtext, or branded overlay anywhere in the pipeline.

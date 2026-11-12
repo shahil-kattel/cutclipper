@@ -101,6 +101,15 @@ export function useJobStream(jobId: string | null, enabled: boolean) {
       schedulePoll(400)
     }
 
+    // Background tabs throttle timers/SSE. Refresh immediately when the user
+    // comes back so progress is current even if the stream was suspended.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && !disposed && !finished) {
+        void poll()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
     try {
       source = new EventSource(jobEventsUrl(jobId))
       source.onopen = () => {
@@ -129,6 +138,7 @@ export function useJobStream(jobId: string | null, enabled: boolean) {
 
     return () => {
       disposed = true
+      document.removeEventListener('visibilitychange', handleVisibility)
       stop()
     }
   }, [applyJob, enabled, jobId])

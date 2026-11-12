@@ -15,12 +15,14 @@ import {
   cancelJob,
   createJob,
   errorMessage,
+  getJob,
   isRetryable,
   previewVideo,
   restyleJob,
   transcribeCaptions,
   uploadVideo,
 } from './lib/api'
+import { clearActiveJob, readActiveJob, storeActiveJob } from './lib/activeJob'
 import { DEFAULT_SETTINGS, formatDuration, pluralize } from './lib/utils'
 import { CAPTION_FONT_OPTIONS } from './lib/captionFonts'
 import type {
@@ -70,6 +72,7 @@ function AppContent() {
   const handledStatus = useRef<string | null>(null)
   const generationRef = useRef(false)
   const generationToken = useRef(0)
+  const restoreAttempted = useRef(false)
 
   const { job: streamedJob, connection } = useJobStream(jobId, step === 'processing')
   const job = streamedJob?.id === jobId ? streamedJob : createdJob?.id === jobId ? createdJob : null
@@ -103,6 +106,36 @@ function AppContent() {
     }
   }, [step])
 
+  // Jobs render on the server, so a closed or reloaded tab can reconnect to
+  // the work that is still running instead of losing it.
+  useEffect(() => {
+    if (restoreAttempted.current) return
+    restoreAttempted.current = true
+    const stored = readActiveJob()
+    if (!stored) return
+    void (async () => {
+      try {
+        const restored = await getJob(stored.id)
+        setJobId(restored.id)
+        setCreatedJob(restored)
+        if (restored.status === 'completed') {
+          handledStatus.current = `${restored.id}:completed`
+          setStep('results')
+        } else if (restored.status === 'running' || restored.status === 'queued') {
+          setStep('processing')
+          toast.info('Reconnected — your render kept running on the server.')
+        } else {
+          clearActiveJob()
+          if (restored.status === 'failed') {
+            toast.error(restored.error_message || 'Your previous render did not finish.')
+          }
+        }
+      } catch {
+        clearActiveJob()
+      }
+    })()
+  }, [toast])
+
   useEffect(() => {
     if (!job) return
     if (handledStatus.current === `${job.id}:${job.status}`) return
@@ -118,9 +151,11 @@ function AppContent() {
       )
     } else if (job.status === 'failed') {
       handledStatus.current = `${job.id}:${job.status}`
+      clearActiveJob()
       toast.error(job.error_message || 'The render failed.')
     } else if (job.status === 'cancelled') {
       handledStatus.current = `${job.id}:${job.status}`
+      clearActiveJob()
       toast.info('The render was cancelled.')
     }
   }, [job, toast])
@@ -279,6 +314,7 @@ function AppContent() {
         void cancelJob(newJob.id).catch(() => undefined)
         return
       }
+      storeActiveJob(newJob)
       setJobId(newJob.id)
       setCreatedJob(newJob)
       setCancelRequested(false)
@@ -323,6 +359,7 @@ function AppContent() {
         void cancelJob(newJob.id).catch(() => undefined)
         return
       }
+      storeActiveJob(newJob)
       setJobId(newJob.id)
       setCreatedJob(newJob)
       setStep('processing')
@@ -345,6 +382,7 @@ function AppContent() {
       try {
         const updated = await restyleJob(restyleParent.id, createdJob.settings.captions)
         if (generationToken.current !== token) return
+        storeActiveJob(updated)
         setJobId(updated.id)
         setCreatedJob(updated)
       } catch (error) {
@@ -371,6 +409,7 @@ function AppContent() {
         void cancelJob(updated.id).catch(() => undefined)
         return
       }
+      storeActiveJob(updated)
       setSettings(updated.settings)
       setCaptionSettings(updated.settings.captions)
       setRestyleParent(job)
@@ -407,6 +446,7 @@ function AppContent() {
 
   const startOver = useCallback(() => {
     generationToken.current += 1
+    clearActiveJob()
     setCancelRequested(false)
     setStep('link')
     setSourceMode('link')
@@ -548,9 +588,14 @@ function AppContent() {
                     setJobId(null)
                     setCreatedJob(null)
                     setCancelRequested(false)
+                    if (!preview) {
+                      setStep('link')
+                      return
+                    }
                     setStep(captionJob ? 'caption' : 'settings')
                   }}
                   onRetry={retryRender}
+                  canRetry={Boolean(preview) || Boolean(restyleParent)}
                   onStartOver={startOver}
                   onBackToPrevious={restyleParent ? backToPreviousExport : undefined}
                   generating={generating}
@@ -563,6 +608,7 @@ function AppContent() {
                   onNewProject={startOver}
                   onEditSettings={editSettings}
                   onRestyle={restyleCurrentJob}
+                  canEditSettings={Boolean(preview)}
                 />
               ) : null}
             </motion.div>
