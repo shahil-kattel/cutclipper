@@ -1,0 +1,31 @@
+name: cutclipper
+
+services:
+  cutclipper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    ports:
+      - "8000:8000"
+    environment:
+      CUTCLIPPER_ENVIRONMENT: production
+      CUTCLIPPER_DATA_DIR: /data
+      CUTCLIPPER_FRONTEND_DIST: /app/frontend/dist
+      CUTCLIPPER_WHISPER_MODEL: ${CUTCLIPPER_WHISPER_MODEL:-base}
+      CUTCLIPPER_WHISPER_DEVICE: ${CUTCLIPPER_WHISPER_DEVICE:-cpu}
+      CUTCLIPPER_WHISPER_COMPUTE_TYPE: ${CUTCLIPPER_WHISPER_COMPUTE_TYPE:-int8}
+      CUTCLIPPER_VIDEO_ENCODER: ${CUTCLIPPER_VIDEO_ENCODER:-auto}
+      CUTCLIPPER_JOB_TTL_SECONDS: ${CUTCLIPPER_JOB_TTL_SECONDS:-21600}
+      CUTCLIPPER_MAX_VIDEO_DURATION_SECONDS: ${CUTCLIPPER_MAX_VIDEO_DURATION_SECONDS:-7200}
+      CUTCLIPPER_MAX_UPLOAD_BYTES: ${CUTCLIPPER_MAX_UPLOAD_BYTES:-3000000000}
+      CUTCLIPPER_LOG_JSON: "true"
+    volumes:
+      - cutclipper-data:/data
+      - cutclipper-whisper:/home/cutclipper/.cache/huggingface
+    shm_size: "1gb"
+    restart: unless-stopped
+
+volumes:
+  cutclipper-data:
+  cutclipper-whisper:
