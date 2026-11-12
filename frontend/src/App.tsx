@@ -34,6 +34,8 @@ import type {
   Job,
   PreviewResponse,
   TranscriptResponse,
+  TranscriptionQuality,
+  TranscriptionTask,
 } from './types/api'
 
 const DEVANAGARI_FONTS = new Set<CaptionFont>(
@@ -57,7 +59,11 @@ function AppContent() {
     structuredClone(DEFAULT_SETTINGS.captions),
   )
   const [captionLanguage, setCaptionLanguage] = useState('auto')
-  const [captionQuality, setCaptionQuality] = useState('balanced')
+  const [captionQuality, setCaptionQuality] = useState<TranscriptionQuality>('balanced')
+  const [captionTask, setCaptionTask] = useState<TranscriptionTask>('transcribe')
+  const [clipLanguage, setClipLanguage] = useState('auto')
+  const [clipQuality, setClipQuality] = useState<TranscriptionQuality>('balanced')
+  const [clipTranslate, setClipTranslate] = useState(false)
   const [captionTranscript, setCaptionTranscript] = useState<TranscriptResponse | null>(null)
   const [captionSegments, setCaptionSegments] = useState<CaptionSegment[]>([])
   const [captionLoading, setCaptionLoading] = useState(false)
@@ -193,20 +199,31 @@ function AppContent() {
   }, [toast, url])
 
   const loadCaptionTranscript = useCallback(
-    async (uploadId: string, language: string, force = false, quality = captionQuality) => {
+    async (
+      uploadId: string,
+      language: string,
+      force = false,
+      quality = captionQuality,
+      task: TranscriptionTask = captionTask,
+    ) => {
       setCaptionLoading(true)
       setCaptionError(null)
       try {
-        const response = await transcribeCaptions(uploadId, language, force, quality)
+        const response = await transcribeCaptions(uploadId, language, force, quality, task)
         setCaptionTranscript(response)
         setCaptionSegments(response.segments)
-        if (language === 'ne') {
+        const translated = response.translated === true || task === 'translate'
+        if (language === 'ne' && !translated) {
           setCaptionSettings((current) =>
             DEVANAGARI_FONTS.has(current.font) ? current : { ...current, font: 'Mukta' },
           )
         }
         if (response.segments.length) {
-          toast.success(`Speech transcribed · ${response.segments.length} editable lines`)
+          toast.success(
+            translated
+              ? `English translation ready · ${response.segments.length} editable lines`
+              : `Speech transcribed · ${response.segments.length} editable lines`,
+          )
         } else {
           toast.info('No speech detected. You can add caption lines manually.')
         }
@@ -216,7 +233,7 @@ function AppContent() {
         setCaptionLoading(false)
       }
     },
-    [captionQuality, toast],
+    [captionQuality, captionTask, toast],
   )
 
   const uploadLocalFile = useCallback(
@@ -243,9 +260,16 @@ function AppContent() {
           setCaptionTranscript(null)
           setCaptionSegments([])
           setCaptionError(null)
+          setCaptionTask('transcribe')
           setStep('caption')
           toast.success(`File ready · transcribing ${formatDuration(response.duration)} of audio`)
-          void loadCaptionTranscript(response.upload_id, captionLanguage)
+          void loadCaptionTranscript(
+            response.upload_id,
+            captionLanguage,
+            false,
+            captionQuality,
+            'transcribe',
+          )
         } else {
           toast.success(`File ready · ${formatDuration(response.duration)} found`)
         }
@@ -257,7 +281,7 @@ function AppContent() {
         setUpload(null)
       }
     },
-    [captionLanguage, loadCaptionTranscript, sourceMode, toast],
+    [captionLanguage, captionQuality, loadCaptionTranscript, sourceMode, toast],
   )
 
   const clearPreviewError = useCallback(() => {
@@ -270,6 +294,38 @@ function AppContent() {
     setPreviewError(null)
     setPreviewRetryable(false)
   }, [])
+
+  const changeClipLanguage = useCallback(
+    (value: string) => {
+      setClipLanguage(value)
+      if (value === 'ne') {
+        if (!clipTranslate) {
+          setSettings((current) =>
+            DEVANAGARI_FONTS.has(current.captions.font)
+              ? current
+              : { ...current, captions: { ...current.captions, font: 'Mukta' } },
+          )
+        }
+      } else if (value === 'en') {
+        setClipTranslate(false)
+      }
+    },
+    [clipTranslate],
+  )
+
+  const changeClipTranslate = useCallback(
+    (value: boolean) => {
+      setClipTranslate(value)
+      if (!value && clipLanguage === 'ne') {
+        setSettings((current) =>
+          DEVANAGARI_FONTS.has(current.captions.font)
+            ? current
+            : { ...current, captions: { ...current.captions, font: 'Mukta' } },
+        )
+      }
+    },
+    [clipLanguage],
+  )
 
   const goToSettings = useCallback(() => {
     if (!preview) return
@@ -307,7 +363,11 @@ function AppContent() {
       const source = preview.upload_id
         ? { uploadId: preview.upload_id }
         : { url: preview.normalized_url }
-      const newJob = await createJob(source, settings)
+      const newJob = await createJob(source, settings, {
+        language: clipLanguage === 'auto' ? null : clipLanguage,
+        quality: clipQuality,
+        task: clipTranslate ? 'translate' : 'transcribe',
+      })
       if (generationToken.current !== token) {
         // The user navigated away while the request was in flight. Do not
         // hijack the screen; cancel the orphaned render instead.
@@ -329,7 +389,7 @@ function AppContent() {
       generationRef.current = false
       setGenerating(false)
     }
-  }, [preview, settings, toast])
+  }, [clipLanguage, clipQuality, clipTranslate, preview, settings, toast])
 
   const startCaptionRender = useCallback(async () => {
     if (!preview?.upload_id || generationRef.current) return
@@ -463,6 +523,10 @@ function AppContent() {
     setCaptionSettings(structuredClone(DEFAULT_SETTINGS.captions))
     setCaptionLanguage('auto')
     setCaptionQuality('balanced')
+    setCaptionTask('transcribe')
+    setClipLanguage('auto')
+    setClipQuality('balanced')
+    setClipTranslate(false)
     setCaptionTranscript(null)
     setCaptionSegments([])
     setCaptionError(null)
@@ -539,7 +603,9 @@ function AppContent() {
                   error={captionError}
                   language={captionLanguage}
                   quality={captionQuality}
+                  task={captionTask}
                   onQualityChange={setCaptionQuality}
+                  onTaskChange={setCaptionTask}
                   onLanguageChange={(value) => {
                     setCaptionLanguage(value)
                     if (value === 'ne') {
@@ -548,11 +614,19 @@ function AppContent() {
                           ? current
                           : { ...current, font: 'Mukta' },
                       )
+                    } else if (value === 'en') {
+                      setCaptionTask('transcribe')
                     }
                   }}
-                  onTranscribe={(force) => {
+                  onTranscribe={(force, task) => {
                     if (preview.upload_id) {
-                      void loadCaptionTranscript(preview.upload_id, captionLanguage, force)
+                      void loadCaptionTranscript(
+                        preview.upload_id,
+                        captionLanguage,
+                        force,
+                        captionQuality,
+                        task,
+                      )
                     }
                   }}
                   onSegmentsChange={setCaptionSegments}
@@ -569,6 +643,12 @@ function AppContent() {
                   preview={preview}
                   settings={settings}
                   onSettingsChange={setSettings}
+                  captionLanguage={clipLanguage}
+                  captionQuality={clipQuality}
+                  translateCaptions={clipTranslate}
+                  onCaptionLanguageChange={changeClipLanguage}
+                  onCaptionQualityChange={setClipQuality}
+                  onTranslateCaptionsChange={changeClipTranslate}
                   onBack={backToLink}
                   onGenerate={startRender}
                   generating={generating}

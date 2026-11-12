@@ -8,6 +8,7 @@ import logging
 import platform
 import re
 import sys
+import uuid
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -245,13 +246,48 @@ def _dedupe_words(words: list[Word], duration: float) -> list[Word]:
 _NEPALI_PROMPT = "यो नेपाली भाषामा बोलिएको कुराकानी हो।"
 
 
+_QUALITY_MODELS_NE = {
+    "fast": "small",
+    "balanced": "small",
+    "best": "medium",
+    "maximum": "large-v3",
+}
+_QUALITY_BEAMS = {"fast": 1, "balanced": 3, "best": 5, "maximum": 5}
+
+
+def _model_for(
+    language: str | None,
+    quality: str | None,
+    settings: Settings,
+) -> str:
+    if language == "ne":
+        if quality in _QUALITY_MODELS_NE:
+            return _QUALITY_MODELS_NE[quality]
+        return settings.nepali_whisper_model
+    if quality == "fast":
+        return settings.whisper_model
+    if quality == "balanced":
+        return "small"
+    if quality == "best":
+        return "medium"
+    if quality == "maximum":
+        return "large-v3"
+    return settings.whisper_model
+
+
+def _beam_for(quality: str | None, settings: Settings) -> int:
+    return _QUALITY_BEAMS.get(quality or "", settings.whisper_beam_size)
+
+
 def _transcribe_kwargs(
     settings: Settings,
     language: str | None,
     beam_size: int | None = None,
+    task: str = "transcribe",
 ) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "language": language,
+        "task": task,
         "beam_size": beam_size or settings.whisper_beam_size,
         "word_timestamps": True,
         "vad_filter": True,
@@ -259,9 +295,69 @@ def _transcribe_kwargs(
         "condition_on_previous_text": False,
         "temperature": 0.0,
     }
-    if language == "ne":
+    if language == "ne" and task == "transcribe":
         kwargs["initial_prompt"] = _NEPALI_PROMPT
     return kwargs
+
+
+async def _detect_language(
+    audio_path: Path,
+    duration: float,
+    settings: Settings,
+) -> tuple[str | None, float | None]:
+    """Detect the spoken language on a short prefix so auto mode can pick Nepali."""
+
+    device, compute_type = _resolve_runtime(settings)
+    model = await asyncio.to_thread(
+        _load_model,
+        settings.whisper_model,
+        device,
+        compute_type,
+        settings.whisper_cpu_threads,
+    )
+    tools = get_media_tools(settings)
+    prefix_path = audio_path
+    temp_path: Path | None = None
+    if duration > 90:
+        temp_path = audio_path.parent / f"detect_{uuid.uuid4().hex[:8]}.wav"
+        command = [
+            tools.ffmpeg,
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-t",
+            "90",
+            "-i",
+            str(audio_path),
+            "-c",
+            "copy",
+            str(temp_path),
+        ]
+        result = await run_process(command, timeout_seconds=120)
+        if result.returncode == 0 and temp_path.exists():
+            prefix_path = temp_path
+    try:
+        from faster_whisper.audio import decode_audio
+
+        samples = await asyncio.to_thread(decode_audio, str(prefix_path), 16000)
+        language, probability, _ = await asyncio.to_thread(
+            model.detect_language,
+            audio=samples,
+            vad_filter=True,
+        )
+        logger.info(
+            "detected source language",
+            extra={"language": language, "probability": round(float(probability), 3)},
+        )
+        return language, float(probability)
+    except Exception as exc:
+        logger.warning("language detection failed", extra={"error": str(exc)})
+        return None, None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def _start_engine(
@@ -300,6 +396,8 @@ async def transcribe_audio(
     cancel_event: Event,
     on_progress: ProgressCallback | None = None,
     language: str | None = None,
+    quality: str | None = None,
+    task: str = "transcribe",
     model_size: str | None = None,
     beam_size: int | None = None,
 ) -> Transcript:
@@ -307,17 +405,21 @@ async def transcribe_audio(
 
     if on_progress:
         on_progress(0.02, "Loading the speech model")
-    selected_language = (
-        language if language not in {None, "", "auto"} else settings.whisper_language
-    )
-    selected_model = model_size or (
-        settings.nepali_whisper_model if selected_language == "ne" else settings.whisper_model
-    )
+    explicit_language = language not in {None, "", "auto"}
+    forced_language = settings.whisper_language
+    selected_language = language if explicit_language else forced_language
+    if not explicit_language and not forced_language:
+        if on_progress:
+            on_progress(0.03, "Detecting spoken language")
+        detected_language, _ = await _detect_language(audio_path, duration, settings)
+        selected_language = detected_language
+    selected_model = model_size or _model_for(selected_language, quality, settings)
+    selected_beam = beam_size or _beam_for(quality, settings)
     device, compute_type = _resolve_runtime(settings)
     if cancel_event.is_set():
         raise JobCancelledError()
 
-    kwargs = _transcribe_kwargs(settings, selected_language, beam_size)
+    kwargs = _transcribe_kwargs(settings, selected_language, selected_beam, task)
     try:
         iterator, info = await asyncio.to_thread(
             _start_engine,
@@ -400,6 +502,8 @@ async def transcribe_windows(
     cancel_event: Event,
     on_progress: ProgressCallback | None = None,
     language: str | None = None,
+    quality: str | None = None,
+    task: str = "transcribe",
     model_size: str | None = None,
     beam_size: int | None = None,
 ) -> Transcript:
@@ -427,19 +531,24 @@ async def transcribe_windows(
             cancel_event=cancel_event,
             on_progress=on_progress,
             language=language,
+            quality=quality,
+            task=task,
             model_size=model_size,
             beam_size=beam_size,
         )
 
-    selected_language = (
-        language if language not in {None, "", "auto"} else settings.whisper_language
-    )
-    selected_model = model_size or (
-        settings.nepali_whisper_model if selected_language == "ne" else settings.whisper_model
-    )
+    explicit_language = language not in {None, "", "auto"}
+    forced_language = settings.whisper_language
+    selected_language = language if explicit_language else forced_language
+    if not explicit_language and not forced_language:
+        if on_progress:
+            on_progress(0.02, "Detecting spoken language")
+        selected_language, _ = await _detect_language(audio_path, duration, settings)
+    selected_model = model_size or _model_for(selected_language, quality, settings)
+    selected_beam = beam_size or _beam_for(quality, settings)
     device, compute_type = _resolve_runtime(settings)
     if on_progress:
-        on_progress(0.01, "Loading the speech model")
+        on_progress(0.03, "Loading the speech model")
     if cancel_event.is_set():
         raise JobCancelledError()
 
@@ -497,7 +606,7 @@ async def transcribe_windows(
                 settings.whisper_cpu_threads,
                 clip_path,
                 window_seconds,
-                _transcribe_kwargs(settings, selected_language, beam_size),
+                _transcribe_kwargs(settings, selected_language, selected_beam, task),
             )
             segments: list[Any] = []
             while True:

@@ -13,6 +13,8 @@ from app.caption_fonts import CAPTION_FONT_NAMES, is_valid_font
 HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
 CaptionFont = str
 CAPTION_FONTS: tuple[str, ...] = CAPTION_FONT_NAMES
+TranscriptionQuality = Literal["fast", "balanced", "best", "maximum"]
+TranscriptionTask = Literal["transcribe", "translate"]
 
 
 class CaptionFontStyle(StrEnum):
@@ -264,6 +266,8 @@ class CreateJobRequest(BaseModel):
     settings: ClipSettings = Field(default_factory=ClipSettings)
     mode: JobMode = JobMode.CLIPS
     language: str | None = Field(default=None, pattern=r"^(auto|[a-z]{2,3})$")
+    quality: TranscriptionQuality | None = None
+    task: TranscriptionTask = "transcribe"
     segments: list[CaptionSegment] | None = Field(default=None, max_length=5000)
 
     @field_validator("url")
@@ -296,7 +300,8 @@ class CreateJobRequest(BaseModel):
 class TranscribeRequest(BaseModel):
     upload_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     language: str | None = Field(default=None, pattern=r"^(auto|[a-z]{2,3})$")
-    quality: Literal["fast", "balanced", "best"] | None = None
+    quality: TranscriptionQuality | None = None
+    task: TranscriptionTask = "transcribe"
     force: bool = False
 
 
@@ -311,6 +316,7 @@ class TranscriptResponse(BaseModel):
     duration: float
     language: str | None = None
     language_probability: float | None = None
+    translated: bool = False
     segments: list[CaptionSegment] = Field(default_factory=list)
     words: list[TranscriptWordOut] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

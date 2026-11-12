@@ -32,6 +32,18 @@ def test_explicit_runtime_settings_are_respected() -> None:
     assert (device, compute_type) == ("cuda", "float32")
 
 
+def test_maximum_quality_uses_large_v3() -> None:
+    settings = Settings()
+    assert transcriber._model_for("ne", "maximum", settings) == "large-v3"
+    assert transcriber._beam_for("maximum", settings) == 5
+
+
+def test_translate_disables_the_nepali_prompt() -> None:
+    kwargs = transcriber._transcribe_kwargs(Settings(), "ne", beam_size=3, task="translate")
+    assert kwargs["task"] == "translate"
+    assert "initial_prompt" not in kwargs
+
+
 def test_quality_beam_override_and_nepali_prompt() -> None:
     settings = Settings(whisper_beam_size=5)
     kwargs = transcriber._transcribe_kwargs(settings, "ne", beam_size=1)

@@ -7,6 +7,7 @@ import {
   Check,
   Clock3,
   Crop,
+  Languages,
   Layers,
   Minus,
   ScanFace,
@@ -20,6 +21,7 @@ import type {
   ClipSettings,
   PreviewResponse,
   ReframeMode,
+  TranscriptionQuality,
   TransitionStyle,
 } from '../types/api'
 import {
@@ -38,10 +40,39 @@ interface SettingsStepProps {
   preview: PreviewResponse
   settings: ClipSettings
   onSettingsChange: (settings: ClipSettings) => void
+  captionLanguage: string
+  captionQuality: TranscriptionQuality
+  translateCaptions: boolean
+  onCaptionLanguageChange: (language: string) => void
+  onCaptionQualityChange: (quality: TranscriptionQuality) => void
+  onTranslateCaptionsChange: (translate: boolean) => void
   onBack: () => void
   onGenerate: () => void
   generating: boolean
   generationError: string | null
+}
+
+const CAPTION_LANGUAGES = [
+  { value: 'auto', label: 'Detect language' },
+  { value: 'ne', label: 'नेपाली · Nepali' },
+  { value: 'en', label: 'English' },
+  { value: 'hi', label: 'हिन्दी · Hindi' },
+]
+
+function captionQualityOptions(language: string) {
+  return language === 'ne'
+    ? [
+        { value: 'fast' as const, label: 'Fast', detail: 'small · quick' },
+        { value: 'balanced' as const, label: 'Balanced', detail: 'small' },
+        { value: 'best' as const, label: 'Best', detail: 'medium' },
+        { value: 'maximum' as const, label: 'Maximum', detail: 'large-v3' },
+      ]
+    : [
+        { value: 'fast' as const, label: 'Fast', detail: 'base' },
+        { value: 'balanced' as const, label: 'Balanced', detail: 'small' },
+        { value: 'best' as const, label: 'Best', detail: 'medium' },
+        { value: 'maximum' as const, label: 'Maximum', detail: 'large-v3' },
+      ]
 }
 
 const REFRAME_MODES: Array<{
@@ -92,6 +123,12 @@ export function SettingsStep({
   preview,
   settings,
   onSettingsChange,
+  captionLanguage,
+  captionQuality,
+  translateCaptions,
+  onCaptionLanguageChange,
+  onCaptionQualityChange,
+  onTranslateCaptionsChange,
   onBack,
   onGenerate,
   generating,
@@ -429,7 +466,98 @@ export function SettingsStep({
                 This video has no audio track, so animated captions are unavailable.
               </p>
             ) : settings.captions.enabled ? (
-              <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />
+              <div className="space-y-4">
+                <div className="rounded-xl border-[1.5px] border-ink/25 bg-paper p-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="flex items-center gap-1.5 text-[11.5px] font-semibold text-ink">
+                        <Languages className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
+                        Spoken language &amp; translation
+                      </p>
+                      <p className="mt-0.5 text-[10px] leading-4 text-ink-soft">
+                        Drives both the automatic captions and the clip transcript.
+                      </p>
+                    </div>
+                    {translateCaptions ? (
+                      <span className="shrink-0 rounded border border-ink bg-teal-soft px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.1em] text-teal shadow-[1px_1px_0_#211d19]">
+                        English output
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="clip-caption-language"
+                        className="mb-1.5 block text-[11.5px] font-medium text-ink-soft"
+                      >
+                        Spoken language
+                      </label>
+                      <select
+                        id="clip-caption-language"
+                        value={captionLanguage}
+                        onChange={(event) => onCaptionLanguageChange(event.target.value)}
+                        className="paper-select h-10 w-full"
+                      >
+                        {CAPTION_LANGUAGES.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <p className="mb-1.5 text-[11.5px] font-medium text-ink-soft">
+                        Transcription accuracy
+                      </p>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {captionQualityOptions(captionLanguage).map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            aria-pressed={captionQuality === option.value}
+                            onClick={() => onCaptionQualityChange(option.value)}
+                            className={cn(
+                              'rounded-lg border px-1.5 py-1.5 text-[10.5px] font-medium transition',
+                              captionQuality === option.value
+                                ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                                : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                            )}
+                          >
+                            {option.label}
+                            <span className="mt-0.5 block text-[8px] uppercase tracking-[0.1em] text-ink-faint">
+                              {option.detail}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-ink/20 bg-paper-soft px-3 py-2.5">
+                    <div>
+                      <p className="text-[11.5px] font-semibold text-ink">
+                        Translate Nepali to English
+                      </p>
+                      <p className="mt-0.5 text-[9.5px] leading-4 text-ink-soft">
+                        Burns English captions with the same word timing and animations.
+                      </p>
+                    </div>
+                    <Toggle
+                      checked={translateCaptions}
+                      onChange={onTranslateCaptionsChange}
+                      disabled={captionLanguage === 'en'}
+                      label="Translate captions to English"
+                    />
+                  </div>
+                  <p className="mt-2 text-[10px] leading-4 text-ink-faint">
+                    {translateCaptions
+                      ? 'Whisper translates the spoken audio to English in one pass; the selected style below is applied to the English captions.'
+                      : captionLanguage === 'ne'
+                        ? 'Nepali defaults to the fast small model. Best uses medium; Maximum uses large-v3 — the most accurate option, but the slowest with a ~3 GB first-run download. You can edit any line in the Caption studio before rendering.'
+                        : 'Pick नेपाली for dedicated Nepali models. Best is the most accurate option; Balanced is a good default.'}
+                  </p>
+                </div>
+                <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />
+              </div>
             ) : (
               <p className="text-xs leading-relaxed text-ink-soft">
                 Captions are off. The export will keep the original audio and framing only.
@@ -786,7 +914,9 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           <PreviewTag>
-            {settings.captions.enabled ? settings.captions.word_style ?? settings.captions.line_style ?? 'No motion' : 'No captions'}
+            {settings.captions.enabled
+              ? (settings.captions.word_style ?? settings.captions.line_style ?? 'No motion')
+              : 'No captions'}
           </PreviewTag>
           <PreviewTag>{settings.selection_mode === 'auto' ? 'Auto cuts' : 'Even split'}</PreviewTag>
           <PreviewTag>{settings.aspect_ratio}</PreviewTag>

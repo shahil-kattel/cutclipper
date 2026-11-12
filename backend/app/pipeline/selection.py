@@ -579,6 +579,14 @@ def _auto_plan(
             energy=energy,
         )
     if not candidates:
+        fallback = _fallback_plan(
+            duration=duration,
+            count=count,
+            min_length=min_length,
+            max_length=max_length,
+        )
+        if fallback:
+            return fallback
         raise SelectionError(
             "No highlight windows fit the requested length range. Try a shorter "
             "minimum length or a longer maximum.",
@@ -586,6 +594,14 @@ def _auto_plan(
         )
     selected = _weighted_choose(candidates, count)
     if selected is None:
+        fallback = _fallback_plan(
+            duration=duration,
+            count=count,
+            min_length=min_length,
+            max_length=max_length,
+        )
+        if fallback:
+            return fallback
         raise SelectionError(
             "CutClipper couldn't find enough non-overlapping highlights with those "
             "settings. Try fewer clips, a shorter minimum length, or wider limits.",
@@ -607,6 +623,40 @@ def _auto_plan(
             )
         )
     return clips
+
+
+def _fallback_plan(
+    *,
+    duration: float,
+    count: int,
+    min_length: float,
+    max_length: float,
+) -> list[ClipPlan]:
+    """Last-resort evenly spaced clips so auto mode never fails on sparse cuts."""
+
+    if duration < min_length - _EPSILON or count < 1:
+        return []
+    slot = duration / count
+    length = min(max_length, max(min_length, slot))
+    clips: list[ClipPlan] = []
+    for index in range(count):
+        start = min(max(0.0, index * slot), max(0.0, duration - length))
+        end = min(duration, start + length)
+        if end - start < min_length - _EPSILON:
+            start = max(0.0, end - length)
+        if not (min_length - _EPSILON <= end - start <= max_length + _EPSILON):
+            continue
+        clips.append(
+            ClipPlan(
+                start=round(start, 3),
+                end=round(end, 3),
+                score=50.0,
+                selection_mode="auto",
+                boundary_start="fallback",
+                boundary_end="fallback",
+            )
+        )
+    return clips if len(clips) == count else []
 
 
 def _boundary_kind(boundaries: list[CutBoundary], time: float) -> str:

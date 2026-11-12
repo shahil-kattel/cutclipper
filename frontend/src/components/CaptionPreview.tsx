@@ -6,6 +6,7 @@ import {
   captionFontStyle,
   captionFontWeight,
 } from '../lib/captionFonts'
+import { cn } from '../lib/utils'
 
 const PREVIEW_WORDS: TranscriptWord[] = [
   { start: 0.18, end: 0.53, text: 'Make' },
@@ -28,6 +29,9 @@ interface CaptionPreviewProps {
   fontSize?: number
   className?: string
   stageRef?: RefObject<HTMLElement | null>
+  /** When provided, the overlay reads the video clock directly so playback
+   * never has to re-render the surrounding studio at frame rate. */
+  video?: RefObject<HTMLVideoElement | null>
 }
 
 interface CaptionGroup {
@@ -181,6 +185,26 @@ function useWidth(ref: RefObject<HTMLElement | null>): number {
   return width
 }
 
+function useVideoClock(video: RefObject<HTMLVideoElement | null> | undefined): number {
+  const [clock, setClock] = useState(0)
+  useEffect(() => {
+    if (!video) return
+    let frame = 0
+    let last = 0
+    const tick = (now: number) => {
+      if (now - last >= 50) {
+        last = now
+        const element = video.current
+        if (element) setClock(element.currentTime)
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [video])
+  return clock
+}
+
 export function CaptionPreview({
   settings,
   segments,
@@ -190,19 +214,25 @@ export function CaptionPreview({
   fontSize,
   className,
   stageRef,
+  video,
 }: CaptionPreviewProps) {
   const ownRef = useRef<HTMLDivElement>(null)
   const observedRef = stageRef ?? ownRef
   const width = useWidth(observedRef)
   const loopTime = usePreviewClock(loop)
-  const currentTime = loop ? loopTime : (time ?? 0)
+  const videoTime = useVideoClock(video)
+  const currentTime = loop ? loopTime : video ? videoTime : (time ?? 0)
   const timeline = loop ? undefined : segments
   const previewWords = loop ? PREVIEW_WORDS : words
   const group = loop
     ? resolveTimeline(currentTime, undefined, PREVIEW_WORDS)
     : resolveTimeline(currentTime, timeline, previewWords)
 
-  if (!group) return <div ref={ownRef} className={className} aria-hidden="true" />
+  // This layer sits on top of the video element. It must never intercept
+  // pointer input, or the native controls and click-to-play stop working.
+  const overlayClass = cn(className, 'pointer-events-none')
+
+  if (!group) return <div ref={ownRef} className={overlayClass} aria-hidden="true" />
 
   const font = captionFontOption(settings.font)
   const resolvedFontSize =
@@ -242,6 +272,10 @@ export function CaptionPreview({
     textShadow: shadow > 0 ? `0 ${shadow}px ${shadow * 1.5}px rgba(0,0,0,0.62)` : undefined,
   }
   const top = settings.position === 'top' ? '16.5%' : settings.position === 'middle' ? '49%' : '80%'
+  // Match the ASS export anchors: top captions grow downward from the anchor,
+  // bottom captions grow upward, and middle captions stay centered.
+  const anchorY =
+    settings.position === 'top' ? '0%' : settings.position === 'middle' ? '-50%' : '-100%'
 
   const wordCss = (wordIndex: number): CSSProperties => {
     const active = wordIndex === activeIndex
@@ -313,19 +347,22 @@ export function CaptionPreview({
   }
 
   return (
-    <div ref={ownRef} className={className} aria-hidden="true">
+    <div ref={ownRef} className={overlayClass} aria-hidden="true">
       <div
         key={groupKey}
         className={`caption-preview-line ${groupClass ?? ''}`}
-        style={{
-          ...baseStyle,
-          position: 'absolute',
-          left: '50%',
-          top,
-          width: '86%',
-          transform: 'translate(-50%, -50%)',
-          textAlign: 'center',
-        }}
+        style={
+          {
+            ...baseStyle,
+            position: 'absolute',
+            left: '50%',
+            top,
+            width: '86%',
+            '--caption-anchor-y': anchorY,
+            transform: 'translate(-50%, var(--caption-anchor-y))',
+            textAlign: 'center',
+          } as CSSProperties
+        }
       >
         {group.words.map((word, wordIndex) => {
           const active = wordIndex === activeIndex

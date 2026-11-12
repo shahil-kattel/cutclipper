@@ -455,6 +455,34 @@ def test_legacy_style_is_accepted_but_not_serialized() -> None:
     assert payload["word_spacing"] == 0.0
 
 
+def test_devanagari_text_falls_back_to_a_devanagari_font(tmp_path: Path) -> None:
+    output = tmp_path / "devanagari.ass"
+    build_ass(
+        [Word(0.2, 0.6, "नमस्ते"), Word(0.7, 1.2, "संसार")],
+        clip_start=0,
+        clip_duration=2,
+        settings=CaptionSettings(word_style=CaptionStyle.KARAOKE, font="Inter"),
+        output_size=(1080, 1920),
+        output_path=output,
+    )
+    text = output.read_text(encoding="utf-8")
+    assert "Style: CutClipper,Mukta,80" in text
+    assert "Style: CutClipper,Inter,80" not in text
+
+
+def test_latin_text_keeps_the_requested_font(tmp_path: Path) -> None:
+    output = tmp_path / "latin.ass"
+    build_ass(
+        [Word(0.2, 0.6, "Hello")],
+        clip_start=0,
+        clip_duration=1,
+        settings=CaptionSettings(word_style=CaptionStyle.KARAOKE, font="Inter"),
+        output_size=(1080, 1920),
+        output_path=output,
+    )
+    assert "Style: CutClipper,Inter,80" in output.read_text(encoding="utf-8")
+
+
 def _timestamp(value: str) -> float:
     hours, minutes, rest = value.split(":")
     seconds = float(rest)

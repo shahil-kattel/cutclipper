@@ -68,7 +68,8 @@ Link sources are fetched by the backend. Optional file uploads are stored only i
 - Editable transcript: change text, start/end times, split at the playhead, merge lines, delete lines, or add new ones. Preview updates as you type.
 - Playable in-browser preview with the selected preset, font, size, colours, position, outline, and shadow rendered live over the uploaded video.
 - Fifty-one bundled font families with regular/bold/italic variants where available (Inter, Space Grotesk, Poppins, Bebas Neue, Mukta, Noto Sans Devanagari, Hind, Kalam, Rajdhani, Tiro Devanagari Hindi, and many more). Devanagari families shape conjuncts correctly in libass; the catalog is served from `/api/caption-fonts`.
-- **Nepali speech recognition** with faster-whisper `ne`, a Nepali initial prompt, and Fast/Balanced/Best quality (`small` with beam 1 / `small` with beam 3 / `medium`). Any other Whisper language can be selected too, with its own quality ladder (`base`/`small`/`medium`).
+- **Nepali speech recognition** with faster-whisper `ne`, a Nepali initial prompt, and Fast/Balanced/Best/Maximum quality (`small` beam 1 / `small` beam 3 / `medium` beam 5 / `large-v3` beam 5). Any other Whisper language can be selected too, with its own quality ladder.
+- **Nepali → English translation** uses Whisper's translate task and burns the English result with the same caption presets. Auto language detection runs on a short prefix; if Nepali is detected, the dedicated Nepali model is used automatically for clip jobs too.
 - Transcription automatically uses the Apple Metal (MPS) backend on Apple Silicon, `int8` on CPU, and batched inference for long audio — typically several times faster than the previous CPU float32 path.
 - Language is detected automatically by default; English, Nepali, and Hindi are one click away.
 - Phone-safe margins, max two rendered lines, ASS injection sanitized.

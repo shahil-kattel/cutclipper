@@ -150,23 +150,20 @@ button {
   border-left: 1px dashed rgba(33, 29, 25, 0.18);
   border-right: 1px dashed rgba(33, 29, 25, 0.18);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 52%),
-    rgba(232, 199, 126, 0.74);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 52%), rgba(232, 199, 126, 0.74);
   box-shadow: 0 1px 0 rgba(33, 29, 25, 0.08);
   pointer-events: none;
 }
 
 .taped-pink::before {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.3), transparent 52%),
-    rgba(234, 157, 160, 0.62);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), transparent 52%), rgba(234, 157, 160, 0.62);
   transform: translateX(-50%) rotate(2deg);
 }
 
 .taped-teal::before {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.3), transparent 52%),
-    rgba(126, 179, 160, 0.62);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), transparent 52%), rgba(126, 179, 160, 0.62);
   transform: translateX(-50%) rotate(-1.5deg);
 }
 
@@ -584,59 +581,59 @@ button {
 @keyframes caption-line-slide {
   from {
     opacity: 0;
-    transform: translate(-50%, calc(-50% + 22px));
+    transform: translate(-50%, calc(var(--caption-anchor-y, -50%) + 22px));
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, var(--caption-anchor-y, -50%));
   }
 }
 
 @keyframes caption-rise {
   from {
     opacity: 0;
-    transform: translate(-50%, calc(-50% + 16px));
+    transform: translate(-50%, calc(var(--caption-anchor-y, -50%) + 16px));
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, var(--caption-anchor-y, -50%));
   }
 }
 
 @keyframes caption-zoom {
   from {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.84);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) scale(0.84);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) scale(1);
   }
 }
 
 @keyframes caption-stamp {
   0% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.42) rotate(-5deg);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) scale(1.42) rotate(-5deg);
   }
   70% {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(0.97) rotate(1deg);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) scale(0.97) rotate(1deg);
   }
   100% {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1) rotate(0);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) scale(1) rotate(0);
   }
 }
 
 @keyframes caption-tilt {
   from {
     opacity: 0;
-    transform: translate(-50%, -50%) rotate(-5deg);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) rotate(-5deg);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) rotate(0);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) rotate(0);
   }
 }
 
@@ -644,12 +641,12 @@ button {
   from {
     opacity: 0;
     filter: blur(6px);
-    transform: translate(-50%, -50%) scale(1.035);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) scale(1.035);
   }
   to {
     opacity: 1;
     filter: blur(0);
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(-50%, var(--caption-anchor-y, -50%)) scale(1);
   }
 }
 

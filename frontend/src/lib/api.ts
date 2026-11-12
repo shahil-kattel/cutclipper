@@ -7,6 +7,8 @@ import type {
   JobSource,
   PreviewResponse,
   TranscriptResponse,
+  TranscriptionQuality,
+  TranscriptionTask,
 } from '../types/api'
 
 const configuredBase = (import.meta.env.VITE_API_BASE as string | undefined)?.trim()
@@ -131,6 +133,8 @@ export async function createJob(
         settings,
         mode: options.mode || 'clips',
         language: options.language || undefined,
+        quality: options.quality || undefined,
+        task: options.task && options.task !== 'transcribe' ? options.task : undefined,
         segments: options.segments,
       }),
     },
@@ -153,7 +157,8 @@ export async function transcribeCaptions(
   uploadId: string,
   language: string | null,
   force = false,
-  quality?: string | null,
+  quality?: TranscriptionQuality | null,
+  task: TranscriptionTask = 'transcribe',
 ): Promise<TranscriptResponse> {
   return request<TranscriptResponse>(
     '/captions/transcribe',
@@ -163,6 +168,7 @@ export async function transcribeCaptions(
         upload_id: uploadId,
         language: language && language !== 'auto' ? language : undefined,
         quality: quality || undefined,
+        task,
         force,
       }),
     },

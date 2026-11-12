@@ -18,6 +18,7 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
+from app.caption_fonts import font_spec
 from app.config import Settings
 from app.core.errors import (
     AppError,
@@ -87,6 +88,8 @@ class JobRecord:
     mode: JobMode = JobMode.CLIPS
     segments: list[CaptionSegment] | None = None
     language: str | None = None
+    quality: str | None = None
+    task: str = "transcribe"
     status: JobStatus = JobStatus.QUEUED
     stage: JobStage = JobStage.QUEUED
     progress: float = 0.0
@@ -194,6 +197,8 @@ class JobManager:
         mode: JobMode = JobMode.CLIPS,
         segments: list[CaptionSegment] | None = None,
         language: str | None = None,
+        quality: str | None = None,
+        task: str = "transcribe",
     ) -> JobRecord:
         job_id = uuid.uuid4().hex
         video = self.cached_preview(url) if url else None
@@ -208,6 +213,8 @@ class JobManager:
             mode=mode,
             segments=segments,
             language=language,
+            quality=quality,
+            task=task,
             video=video,
             base_dir=self.settings.jobs_dir,
             message="Queued for processing",
@@ -539,6 +546,28 @@ class JobManager:
             finally:
                 self.queue.task_done()
 
+    def _ensure_caption_script_font(self, record: JobRecord, transcript: Transcript) -> None:
+        """Never burn Devanagari text with a Latin-only font."""
+
+        captions = record.settings.captions
+        if not captions.enabled or record.task == "translate" or transcript.language != "ne":
+            return
+        spec = font_spec(captions.font)
+        if spec is not None and "devanagari" in spec.scripts:
+            return
+        record.settings = record.settings.model_copy(
+            update={
+                "captions": captions.model_copy(update={"font": "Mukta"}),
+            }
+        )
+        self._update(
+            record,
+            warnings=[
+                f"Nepali was detected, so the caption font was switched from {captions.font} "
+                "to Mukta for correct Devanagari rendering."
+            ],
+        )
+
     def _prepare_upload(self, record: JobRecord, downloads: Path) -> Path:
         """Link (or copy) the uploaded source into the job workspace."""
 
@@ -835,9 +864,12 @@ class JobManager:
                 cancel_event=cancel,
                 on_progress=caption_progress,
                 language=record.language,
+                quality=record.quality,
+                task=record.task,
             )
             words = transcript.words
             record.caption_words = list(words)
+            self._ensure_caption_script_font(record, transcript)
             if transcript.warnings:
                 self._update(record, warnings=transcript.warnings)
             if not words:
@@ -1114,6 +1146,8 @@ class JobManager:
                         cancel_event=cancel,
                         on_progress=transcription_progress,
                         language=record.language,
+                        quality=record.quality,
+                        task=record.task,
                     )
                 else:
                     transcript = await transcribe_audio(
@@ -1123,6 +1157,8 @@ class JobManager:
                         cancel_event=cancel,
                         on_progress=transcription_progress,
                         language=record.language,
+                        quality=record.quality,
+                        task=record.task,
                     )
                 self._update(
                     record,
@@ -1156,6 +1192,8 @@ class JobManager:
                 )
         else:
             self._update(record, progress=50, message="No audio · skipping transcription")
+
+        self._ensure_caption_script_font(record, transcript)
 
         self._update(
             record,

@@ -24,6 +24,8 @@ import type {
   CaptionSettings,
   PreviewResponse,
   TranscriptResponse,
+  TranscriptionQuality,
+  TranscriptionTask,
 } from '../types/api'
 import { uploadVideoUrl } from '../lib/api'
 import { downloadSrt } from '../lib/srt'
@@ -39,10 +41,12 @@ interface CaptionStepProps {
   loading: boolean
   error: string | null
   language: string
-  quality: string
+  quality: TranscriptionQuality
+  task: TranscriptionTask
   onLanguageChange: (language: string) => void
-  onQualityChange: (quality: string) => void
-  onTranscribe: (force: boolean) => void
+  onQualityChange: (quality: TranscriptionQuality) => void
+  onTaskChange: (task: TranscriptionTask) => void
+  onTranscribe: (force: boolean, task?: TranscriptionTask) => void
   onSegmentsChange: (segments: CaptionSegment[]) => void
   captions: CaptionSettings
   onCaptionsChange: (captions: CaptionSettings) => void
@@ -58,17 +62,21 @@ const LANGUAGES = [
   { value: 'hi', label: 'हिन्दी · Hindi' },
 ]
 
-function qualityOptionsFor(language: string) {
+function qualityOptionsFor(
+  language: string,
+): Array<{ value: TranscriptionQuality; label: string; detail: string }> {
   return language === 'ne'
     ? [
         { value: 'fast', label: 'Fast', detail: 'small · quick' },
         { value: 'balanced', label: 'Balanced', detail: 'small' },
-        { value: 'best', label: 'Best', detail: 'medium · accurate' },
+        { value: 'best', label: 'Best', detail: 'medium' },
+        { value: 'maximum', label: 'Maximum', detail: 'large-v3' },
       ]
     : [
         { value: 'fast', label: 'Fast', detail: 'base' },
         { value: 'balanced', label: 'Balanced', detail: 'small' },
         { value: 'best', label: 'Best', detail: 'medium' },
+        { value: 'maximum', label: 'Maximum', detail: 'large-v3' },
       ]
 }
 
@@ -87,8 +95,10 @@ export function CaptionStep({
   error,
   language,
   quality,
+  task,
   onLanguageChange,
   onQualityChange,
+  onTaskChange,
   onTranscribe,
   onSegmentsChange,
   captions,
@@ -100,7 +110,6 @@ export function CaptionStep({
   const videoRef = useRef<HTMLVideoElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
-  const [playing, setPlaying] = useState(false)
   const [stageHeight, setStageHeight] = useState(480)
   const [selectedSegment, setSelectedSegment] = useState<number | null>(null)
 
@@ -113,24 +122,6 @@ export function CaptionStep({
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
-
-  useEffect(() => {
-    if (!playing) return
-    // The caption overlay only needs a smooth-enough clock. Re-rendering the
-    // whole studio at 60 fps fights the video decoder and makes playback
-    // stutter, so cap the preview updates at ~20 fps.
-    let frame = 0
-    let last = 0
-    const tick = (now: number) => {
-      if (now - last >= 50) {
-        last = now
-        if (videoRef.current) setCurrentTime(videoRef.current.currentTime)
-      }
-      frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [playing])
 
   const activeIndex = segments.findIndex(
     (segment) => currentTime >= segment.start - 0.02 && currentTime < segment.end,
@@ -274,9 +265,6 @@ export function CaptionStep({
                 playsInline
                 preload="metadata"
                 className="h-full w-full object-contain"
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onEnded={() => setPlaying(false)}
                 onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
                 onSeeked={(event) => setCurrentTime(event.currentTarget.currentTime)}
               />
@@ -285,6 +273,7 @@ export function CaptionStep({
                 segments={segments}
                 words={transcript?.words ?? []}
                 time={currentTime}
+                video={videoRef}
                 fontSize={stageFontSize}
                 className="absolute inset-0"
               />
@@ -481,12 +470,42 @@ export function CaptionStep({
                   </div>
                 </div>
               </div>
-              <p className="text-[10px] leading-4 text-ink-faint">
-                {language === 'ne'
-                  ? 'Nepali now defaults to the fast small model on Metal/int8. Best switches to medium for harder audio.'
-                  : transcript?.language
-                    ? `Detected: ${transcript.language.toUpperCase()}. Fast / balanced / best map to base / small / medium.`
-                    : 'Fast / balanced / best map to base / small / medium. Balanced is a good default.'}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink/20 bg-paper-soft px-3 py-2.5">
+                <div>
+                  <p className="text-[11.5px] font-semibold text-ink">
+                    {task === 'translate' ? 'English translation' : 'Caption output'}
+                  </p>
+                  <p className="mt-0.5 text-[9.5px] leading-4 text-ink-soft">
+                    {task === 'translate'
+                      ? 'Translated from the spoken audio. Timing and animations stay the same; current line edits are replaced.'
+                      : 'Words as spoken. Translate them to English in one pass.'}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={WandSparkles}
+                  loading={loading}
+                  disabled={generating || language === 'en'}
+                  onClick={() => {
+                    const next = task === 'translate' ? 'transcribe' : 'translate'
+                    onTaskChange(next)
+                    onTranscribe(true, next)
+                  }}
+                >
+                  {task === 'translate' ? 'Back to spoken words' : 'Translate to English'}
+                </Button>
+              </div>
+              <p className="mt-2 text-[10px] leading-4 text-ink-faint">
+                {transcript?.translated
+                  ? 'English translation ready. Edit any line below before rendering; the selected animations are applied to the English captions.'
+                  : task === 'translate'
+                    ? 'Whisper translates the spoken audio to English in one pass. Use Best for harder audio.'
+                    : language === 'ne'
+                      ? 'Nepali defaults to the fast small model on Metal/int8. Best switches to medium for harder audio.'
+                      : transcript?.language
+                        ? `Detected: ${transcript.language.toUpperCase()}. Fast / balanced / best map to base / small / medium.`
+                        : 'Fast / balanced / best map to base / small / medium. Balanced is a good default.'}
               </p>
             </div>
 

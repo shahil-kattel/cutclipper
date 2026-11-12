@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.caption_fonts import font_spec
 from app.pipeline.types import CaptionRenderResult, Word
 from app.schemas import (
     CaptionFontStyle,
@@ -22,6 +23,7 @@ _MAX_GROUP_WORDS = 9
 _MAX_GROUP_SECONDS = 6.4
 _MIN_EVENT_SECONDS = 0.04
 _SENTENCE_END_RE = re.compile(r"""[.!?…।॥。！？]["'”’)\]]*$""")
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
 _RAINBOW_COLOURS = ("#FF6B8A", "#FFD166", "#7BD389", "#4CC9F0", "#B69CFF")
 _ENTRANCE_DURATIONS_MS: dict[CaptionStyle, int] = {
     CaptionStyle.SLIDE: 420,
@@ -545,6 +547,21 @@ def _event_end(flat_words: list[_WordRef], index: int, fallback: float) -> float
     return flat_words[index + 1].start if index + 1 < len(flat_words) else fallback
 
 
+def _caption_font_for(refs: list[_WordRef], requested: str) -> str:
+    """Fall back to a Devanagari-capable face when the text needs one.
+
+    Auto-detected Nepali can arrive while the user still has a Latin-only font
+    selected; rendering that with Inter would produce empty boxes.
+    """
+
+    if not any(_DEVANAGARI_RE.search(ref.text) for ref in refs):
+        return requested
+    spec = font_spec(requested)
+    if spec is None or "devanagari" not in spec.scripts:
+        return "Mukta"
+    return requested
+
+
 def build_ass(
     words: list[Word],
     *,
@@ -586,6 +603,7 @@ def build_ass(
     word_style = settings.word_style
     line_style = settings.line_style
     separator = _separator(settings.word_spacing, settings.letter_spacing)
+    caption_font = _caption_font_for(refs, settings.font)
     bold = -1 if settings.font_style in (CaptionFontStyle.BOLD, CaptionFontStyle.BOLD_ITALIC) else 0
     italic = (
         -1 if settings.font_style in (CaptionFontStyle.ITALIC, CaptionFontStyle.BOLD_ITALIC) else 0
@@ -601,7 +619,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: CutClipper,{settings.font},{settings.font_size},{_ass_colour(settings.color)},&H000000FF,&H00000000,&H80000000,{bold},{italic},0,0,100,100,{settings.letter_spacing:.1f},0,1,{settings.outline_width:.1f},{settings.shadow:.1f},{alignment},0,0,0,1
+Style: CutClipper,{caption_font},{settings.font_size},{_ass_colour(settings.color)},&H000000FF,&H00000000,&H80000000,{bold},{italic},0,0,100,100,{settings.letter_spacing:.1f},0,1,{settings.outline_width:.1f},{settings.shadow:.1f},{alignment},0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

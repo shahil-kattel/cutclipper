@@ -105,6 +105,8 @@ export interface JobOptions {
   mode?: JobMode
   segments?: CaptionSegment[]
   language?: string | null
+  quality?: TranscriptionQuality | null
+  task?: TranscriptionTask
 }
 
 export interface CaptionSegment {
@@ -128,6 +130,7 @@ export interface TranscriptResponse {
   words: TranscriptWord[]
   warnings: string[]
   cached: boolean
+  translated?: boolean
 }
 
 export interface Clip {
@@ -180,3 +183,5 @@ export interface ApiErrorBody {
 
 export type AppStep = 'link' | 'caption' | 'settings' | 'processing' | 'results'
 export type ToastTone = 'success' | 'error' | 'info'
+export type TranscriptionQuality = 'fast' | 'balanced' | 'best' | 'maximum'
+export type TranscriptionTask = 'transcribe' | 'translate'

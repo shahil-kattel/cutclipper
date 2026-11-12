@@ -215,6 +215,24 @@ def test_partial_transcription_windows_avoid_the_whole_source() -> None:
     assert windows[0].start < windows[1].start < windows[2].start
 
 
+def test_auto_falls_back_to_a_valid_window_when_boundaries_are_sparse() -> None:
+    transcript = Transcript(
+        words=[Word(6.0, 8.2, "hello")],
+        sentences=[Sentence(start=6.0, end=8.2, text="hello", word_indices=[0])],
+        duration=8.35,
+    )
+    settings = ClipSettings(clip_count=1, min_clip_seconds=5, max_clip_seconds=8)
+    result = select_clips(
+        duration=8.35,
+        settings=settings,
+        transcript=transcript,
+        scenes=[],
+        energy=None,
+    )
+    assert len(result.clips) == 1
+    assert 5 <= result.clips[0].duration <= 8
+
+
 def test_auto_selection_stays_inside_transcription_windows() -> None:
     duration = 600.0
     transcript = make_transcript(duration)
