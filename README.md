@@ -26,7 +26,7 @@ CutClipper ingests a video from a public URL or a local upload, finds the moment
 
 Link sources are fetched by the backend. Optional file uploads are stored only in CutClipper's local temp workspace. No browser extensions, peer-to-peer transfers, or cloud storage accounts are involved.
 
-> **Tested end to end on a real YouTube source and a local upload.** A 3½-minute 1080p speech was downloaded, transcribed with Whisper, split into exactly 3 highlights, smart-cropped around the speaker, captioned with karaoke timing, encoded as 1080×1920 H.264/AAC, and verified for output dimensions, audio streams, Range playback, and ZIP delivery. A second two-clip job was created from an uploaded MP4 and completed through the same upload → preview → render → download path. See [Screenshots](#screenshots).
+> **Tested end to end on a real YouTube source, a local upload, and the Caption studio.** A 3½-minute 1080p speech was downloaded, transcribed with Whisper, split into exactly 3 highlights, smart-cropped around the speaker, captioned with karaoke timing, encoded as 1080×1920 H.264/AAC, and verified for output dimensions, audio streams, Range playback, and ZIP delivery. An uploaded MP4 completed the same upload → preview → render → download path. The Caption studio was exercised with English and Nepali speech: transcription, line editing, live playback preview, Devanagari fonts (Mukta, Noto Sans Devanagari, Hind, Kalam), all eight presets, and final MP4 delivery. See [Screenshots](#screenshots).
 
 ## Features
 
@@ -46,6 +46,8 @@ Link sources are fetched by the backend. Optional file uploads are stored only i
 - Audio-energy and speech-density analysis.
 - Sentence-edge and silence-boundary snapping.
 - **Auto-highlights** choose the top non-overlapping windows by a blended score of audio energy, speech density, sentence completeness, and scene alignment.
+- Auto mode makes at most **6 clips** and automatically reduces the count when the source cannot fit the requested clips at the chosen minimum length.
+- **Partial transcription** for long sources: when the requested outputs cover a small part of the timeline, only the planned highlight windows (energy-scored for auto, target slots for even) are sent to Whisper, and word timestamps are restored to absolute source time.
 - **Evenly split** uses a dynamic program to stay near equal lengths while respecting the requested min/max.
 - If a music-heavy video has no clean pauses, Evenly split transparently falls back to word/scene edges and says so in the results.
 - Always returns exactly the requested clip count, or explains why the settings cannot fit.
@@ -57,16 +59,19 @@ Link sources are fetched by the backend. Optional file uploads are stored only i
 - **Center crop** and **blur-background fit** fallbacks.
 - 9:16 `1080×1920` by default, plus **1:1 `1080×1080`** and **4:5 `1080×1350`**.
 
-### Captions
+### Captions and the Caption studio
+
 - Word-timed ASS subtitles burned in via libass.
-- Four animated styles:
-  - **Karaoke** — full line visible, active word highlighted.
-  - **Pop** — words appear with a scale bounce.
-  - **Typewriter** — characters reveal in spoken rhythm.
-  - **Minimal** — clean static lines with a soft fade.
-- Controls for font, size, text color, highlight color, top/middle/bottom position, outline, and shadow.
+- **Caption studio** mode on the home page: upload a video, transcribe the whole thing, fix every line, preview it in a playable player, then download the captioned MP4. No highlight selection or reframing is applied in this mode.
+- Nineteen animated presets: **Karaoke**, **Pop**, **Bounce**, **Highlight**, **Neon**, **Slide**, **Typewriter**, **Minimal**, **Fade Up**, **Zoom In**, **Stamp**, **Tilt**, **Spotlight**, **Underline**, **Pulse**, **Wiggle**, **Rainbow**, **Soft Blur**, and **Box**.
+- Post-cut caption restyling: change font, style, colours, spacing, case, and position after a render and produce fresh MP4/ZIP downloads without re-cutting the source.
+- Editable transcript: change text, start/end times, split at the playhead, merge lines, delete lines, or add new ones. Preview updates as you type.
+- Playable in-browser preview with the selected preset, font, size, colours, position, outline, and shadow rendered live over the uploaded video.
+- Fifty-one bundled font families with regular/bold/italic variants where available (Inter, Space Grotesk, Poppins, Bebas Neue, Mukta, Noto Sans Devanagari, Hind, Kalam, Rajdhani, Tiro Devanagari Hindi, and many more). Devanagari families shape conjuncts correctly in libass; the catalog is served from `/api/caption-fonts`.
+- **Nepali speech recognition** with faster-whisper `ne`, a Nepali initial prompt, and Fast/Balanced/Best quality (`small`/`medium`/`large-v3`). Any other Whisper language can be selected too, with its own quality ladder (`base`/`small`/`medium`).
+- Language is detected automatically by default; English, Nepali, and Hindi are one click away.
 - Phone-safe margins, max two rendered lines, ASS injection sanitized.
-- Bundled Inter fonts with OFL license for consistent rendering across machines.
+- Bundled OFL fonts, including Mukta, Noto Sans Devanagari, Hind, and Kalam for Nepali captions.
 
 ### Transitions
 - Fade, zoom, slide, and whip-pan.
@@ -263,6 +268,7 @@ All settings use the `CUTCLIPPER_` prefix and can live in `.env` or the environm
 | Variable | Default | Description |
 |---|---|---|
 | `CUTCLIPPER_WHISPER_MODEL` | `base` | `tiny`, `base`, `small`, `medium`, `large-v3`, or local model path |
+| `CUTCLIPPER_NEPALI_WHISPER_MODEL` | `medium` | Default model for Nepali speech; the Caption studio can override it per request with `fast`/`balanced`/`best` |
 | `CUTCLIPPER_WHISPER_DEVICE` | `auto` | `auto`, `cpu`, `cuda` |
 | `CUTCLIPPER_WHISPER_COMPUTE_TYPE` | `auto` | CTranslate2 compute type; `int8` is a good CPU choice |
 | `CUTCLIPPER_VIDEO_ENCODER` | `auto` | `auto`, `h264_videotoolbox`, `h264_nvenc`, or `libx264` |
@@ -287,7 +293,12 @@ Frontend API base is controlled by `VITE_API_BASE` at build time (defaults to `/
 | `POST` | `/api/preview` | Validate a URL and return source metadata |
 | `POST` | `/api/uploads` | Multipart local upload; validates, generates a poster, returns metadata |
 | `GET` | `/api/uploads/{id}/thumbnail` | Preview poster for an uploaded file |
-| `POST` | `/api/jobs` | Create a job from `{url}` or `{upload_id}` plus settings |
+| `GET` | `/api/uploads/{id}/video` | Range-capable source stream for the playable caption preview |
+| `GET` | `/api/caption-fonts` | Bundled caption font catalog with variants |
+| `GET` | `/api/caption-fonts/{filename}` | Serves a bundled font for the in-browser preview |
+| `POST` | `/api/captions/transcribe` | Transcribe an upload for the Caption studio; returns editable segments + words, with a per-language/quality cache |
+| `POST` | `/api/jobs` | Create a job from `{url}` or `{upload_id}` plus settings. `mode: "captions"` + `segments` + `language` renders a full captioned video |
+| `POST` | `/api/jobs/{id}/restyle` | Re-render a finished job's clips or captioned video with new caption styling |
 | `GET` | `/api/jobs/{id}` | Current job snapshot |
 | `GET` | `/api/jobs/{id}/events` | SSE progress stream |
 | `POST` | `/api/jobs/{id}/cancel` | Cancel a queued/running job |

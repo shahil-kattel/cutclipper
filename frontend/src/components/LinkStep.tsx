@@ -19,10 +19,10 @@ import {
 } from 'lucide-react'
 import type { PreviewResponse } from '../types/api'
 import { cn, formatDuration, sourceName } from '../lib/utils'
-import { Button, Pill, Skeleton } from './ui'
+import { Button, Skeleton } from './ui'
 import { useToast } from '../hooks/useToast'
 
-export type SourceMode = 'link' | 'upload'
+export type SourceMode = 'link' | 'upload' | 'caption'
 
 interface LinkStepProps {
   url: string
@@ -49,17 +49,37 @@ const FEATURES = [
     icon: ScanFace,
     title: 'Speaker-aware crops',
     copy: 'Smooth face tracking turns landscape footage into native-feeling 9:16.',
+    tone: 'bg-mustard-soft',
+    iconTone: 'bg-mustard',
+    tilt: '-rotate-1',
   },
   {
     icon: Captions,
-    title: 'Word-perfect captions',
-    copy: 'Whisper-level timing with karaoke, pop, typewriter, and minimal styles.',
+    title: 'Editable captions',
+    copy: 'Nepali + 90 languages, 19 animation presets, 51 fonts, and line-by-line corrections.',
+    tone: 'bg-teal-soft',
+    iconTone: 'bg-teal text-paper-soft',
+    tilt: 'rotate-[0.5deg]',
   },
   {
     icon: BadgeCheck,
     title: 'Clean by default',
     copy: 'No watermarks, logos, paywalls, or hidden caps. Just your clips.',
+    tone: 'bg-periwinkle-soft',
+    iconTone: 'bg-periwinkle text-paper-soft',
+    tilt: '-rotate-[0.4deg]',
   },
+]
+
+const SUPPORTED_SOURCES = [
+  'YouTube',
+  'Vimeo',
+  'X',
+  'TikTok',
+  'Twitch',
+  'Direct MP4',
+  'Local files',
+  '1,000+ sites',
 ]
 
 export function LinkStep({
@@ -131,34 +151,64 @@ export function LinkStep({
   return (
     <div className="relative mx-auto max-w-5xl">
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
-        className="mx-auto max-w-3xl text-center"
+        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        className="relative mx-auto max-w-4xl text-center"
       >
-        <div className="mb-6 flex justify-center">
-          <Pill tone="cyan" className="gap-2 border-cyan-300/20 bg-cyan-300/[0.055] px-3 py-1.5">
-            <Sparkles className="h-3 w-3" aria-hidden="true" />
-            Link or upload → highlights → ready to post
-          </Pill>
+        <span
+          aria-hidden="true"
+          className="absolute -left-14 top-24 hidden h-16 w-16 -rotate-12 items-center justify-center rounded-full border-[1.5px] border-ink bg-blush-soft font-hand text-[13px] leading-tight text-ink shadow-[2px_3px_0_#211d19] xl:flex"
+        >
+          your video,
+          <br />
+          but fun
+        </span>
+        <span
+          aria-hidden="true"
+          className="absolute -right-12 top-36 hidden rotate-6 flex-col items-center gap-1 font-hand text-[17px] text-ink-soft xl:flex"
+        >
+          <svg viewBox="0 0 64 44" className="h-10 w-14 text-tomato">
+            <path
+              d="M4 34c16-24 29 5 43-17M40 15l8 1-2 9"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          no watermark.
+          <br />
+          pinky promise.
+        </span>
+
+        <div className="mb-5 flex justify-center">
+          <span className="inline-flex -rotate-2 items-center gap-2 rounded-lg border-[1.5px] border-ink bg-mustard-soft px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.13em] text-ink shadow-[2px_2px_0_#211d19]">
+            <Sparkles className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
+            The tiny clip studio · est. 2026
+          </span>
         </div>
-        <h1 className="text-balance font-display text-[2.55rem] font-semibold leading-[0.98] tracking-[-0.065em] sm:text-6xl lg:text-[4.5rem]">
+
+        <h1 className="text-balance font-display text-[3.1rem] font-semibold leading-[0.96] tracking-[-0.055em] text-ink sm:text-[4.4rem] lg:text-[5.15rem]">
           Long video.
           <br />
-          <span className="text-gradient">Clips that stop the scroll.</span>
+          <span className="marker-highlight">Short clips</span> that
+          <br />
+          <span className="text-gradient italic">stop the scroll.</span>
         </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-pretty text-[15px] leading-7 text-slate-400 sm:text-base">
-          Paste a public video link or upload a file from your computer. CutClipper finds the
-          moments worth watching, reframes them to 9:16, and burns in kinetic captions — without a
-          single watermark.
+        <p className="mx-auto mt-6 max-w-2xl text-pretty text-[13.5px] font-medium leading-7 text-ink-soft sm:text-[14.5px]">
+          Paste a public video link, upload a file, or caption a full video in English, Nepali, or
+          any language Whisper supports. CutClipper finds the moments worth watching, reframes them
+          to 9:16, and burns in editable kinetic captions — without a single watermark.
         </p>
       </motion.div>
 
       <motion.div
-        initial={{ opacity: 0, y: 26 }}
+        initial={{ opacity: 0, y: 22 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.65, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-        className="mx-auto mt-10 max-w-3xl sm:mt-12"
+        transition={{ duration: 0.6, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+        className="relative mx-auto mt-12 max-w-3xl sm:mt-14"
       >
         <AnimatePresence mode="wait" initial={false}>
           {preview ? (
@@ -173,9 +223,15 @@ export function LinkStep({
               key="source-form"
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2 }}
-              className="border-gradient rounded-2xl p-1 shadow-[0_35px_100px_-55px_rgba(64,96,255,0.8)]"
+              className="paper-card taped p-2.5 sm:p-3"
             >
-              <div className="rounded-[0.95rem] bg-[#070b18]/95 p-2.5 sm:p-3">
+              <div className="rounded-[0.95rem] bg-paper-soft p-2.5 sm:p-3.5">
+                <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-ink-soft">
+                    Step 01 · choose a source
+                  </p>
+                  <span className="font-hand text-[15px] text-tomato">start here</span>
+                </div>
                 <div
                   role="tablist"
                   aria-label="Video source"
@@ -188,18 +244,24 @@ export function LinkStep({
                       return
                     }
                     event.preventDefault()
+                    const modes: SourceMode[] = ['link', 'upload', 'caption']
+                    const currentIndex = modes.indexOf(mode)
                     const next: SourceMode =
-                      event.key === 'Home' || event.key === 'ArrowLeft' ? 'link' : 'upload'
+                      event.key === 'Home'
+                        ? 'link'
+                        : event.key === 'End'
+                          ? 'caption'
+                          : event.key === 'ArrowLeft'
+                            ? (modes[(currentIndex + modes.length - 1) % modes.length] ?? 'link')
+                            : (modes[(currentIndex + 1) % modes.length] ?? 'upload')
                     onModeChange(next)
                     setTouched(false)
                     onClearError()
                     requestAnimationFrame(() => {
-                      document
-                        .getElementById(next === 'link' ? 'source-tab-link' : 'source-tab-upload')
-                        ?.focus()
+                      document.getElementById(`source-tab-${next}`)?.focus()
                     })
                   }}
-                  className="mb-2.5 grid grid-cols-2 gap-1 rounded-xl border border-white/[0.05] bg-white/[0.025] p-1"
+                  className="mb-3 grid grid-cols-3 gap-1 rounded-xl border-[1.5px] border-ink bg-paper-deep/60 p-1"
                 >
                   <SourceTab
                     id="source-tab-link"
@@ -207,6 +269,7 @@ export function LinkStep({
                     active={mode === 'link'}
                     icon={Link2}
                     label="Paste a link"
+                    activeTone="bg-mustard-soft"
                     disabled={Boolean(uploading) || loading}
                     onClick={() => {
                       onModeChange('link')
@@ -220,9 +283,24 @@ export function LinkStep({
                     active={mode === 'upload'}
                     icon={CloudUpload}
                     label="Upload a file"
+                    activeTone="bg-teal-soft"
                     disabled={Boolean(uploading) || loading}
                     onClick={() => {
                       onModeChange('upload')
+                      setTouched(false)
+                      onClearError()
+                    }}
+                  />
+                  <SourceTab
+                    id="source-tab-caption"
+                    controls="source-panel-caption"
+                    active={mode === 'caption'}
+                    icon={Captions}
+                    label="Add captions"
+                    activeTone="bg-periwinkle-soft"
+                    disabled={Boolean(uploading) || loading}
+                    onClick={() => {
+                      onModeChange('caption')
                       setTouched(false)
                       onClearError()
                     }}
@@ -242,7 +320,7 @@ export function LinkStep({
                     <div className="flex flex-col gap-2.5 sm:flex-row">
                       <div className="relative flex min-w-0 flex-1 items-center">
                         <Link2
-                          className="pointer-events-none absolute left-4 h-[18px] w-[18px] text-slate-500"
+                          className="pointer-events-none absolute left-3.5 h-[18px] w-[18px] text-tomato"
                           aria-hidden="true"
                         />
                         <input
@@ -258,13 +336,13 @@ export function LinkStep({
                           placeholder="Paste any public video link"
                           aria-invalid={empty || Boolean(error)}
                           aria-describedby={error ? 'preview-error' : 'supported-sources'}
-                          className="h-12 w-full rounded-xl border border-white/[0.075] bg-white/[0.035] pl-11 pr-[5.6rem] text-[14px] text-white transition placeholder:text-slate-600 focus:border-cyan-300/35 focus:bg-white/[0.05] focus:outline-none sm:h-[3.25rem] sm:text-[15px]"
+                          className="paper-input h-12 w-full rounded-xl pl-11 pr-[5.4rem] text-[13px] font-medium outline-none transition focus:border-tomato sm:h-[3.25rem] sm:text-[14px]"
                         />
                         <button
                           type="button"
                           onClick={paste}
                           disabled={pasting}
-                          className="absolute right-2.5 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-slate-400 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+                          className="absolute right-2 inline-flex items-center gap-1.5 rounded-md border-[1.5px] border-ink bg-paper px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.04em] text-ink shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-mustard-soft active:translate-y-px active:shadow-none disabled:opacity-50"
                           aria-label="Paste link from clipboard"
                         >
                           <ClipboardPaste className="h-3.5 w-3.5" aria-hidden="true" />
@@ -282,9 +360,18 @@ export function LinkStep({
                         {loading ? 'Reading video' : 'Analyze link'}
                       </Button>
                     </div>
+                    <p className="mt-2.5 px-1 font-hand text-[14px] text-ink-soft">
+                      copy, paste, snip — no account, no fuss.
+                    </p>
                   </form>
                 ) : (
-                  <div id="source-panel-upload" role="tabpanel" aria-labelledby="source-tab-upload">
+                  <div
+                    id={mode === 'caption' ? 'source-panel-caption' : 'source-panel-upload'}
+                    role="tabpanel"
+                    aria-labelledby={
+                      mode === 'caption' ? 'source-tab-caption' : 'source-tab-upload'
+                    }
+                  >
                     <div
                       onDragOver={(event) => {
                         if (uploading || loading) return
@@ -298,10 +385,10 @@ export function LinkStep({
                         chooseFile(event.dataTransfer.files?.[0])
                       }}
                       className={cn(
-                        'relative overflow-hidden rounded-xl border border-dashed px-4 py-7 text-center transition focus-within:border-cyan-300/50 focus-within:ring-2 focus-within:ring-cyan-300/30 sm:py-8',
+                        'relative overflow-hidden rounded-xl border-[1.5px] border-dashed px-4 py-7 text-center transition focus-within:border-tomato focus-within:ring-2 focus-within:ring-tomato/30 sm:py-8',
                         dragging
-                          ? 'border-cyan-300/45 bg-cyan-300/[0.055]'
-                          : 'border-white/[0.11] bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.032]',
+                          ? 'border-tomato bg-tomato-soft/70'
+                          : 'border-ink/40 bg-paper/50 hover:border-ink hover:bg-paper',
                       )}
                     >
                       <input
@@ -322,27 +409,31 @@ export function LinkStep({
                           (uploading || loading) && 'pointer-events-none opacity-70',
                         )}
                       >
-                        <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-cyan-200 transition group-hover:border-cyan-300/30 group-hover:bg-cyan-300/[0.07]">
+                        <span className="flex h-12 w-12 -rotate-2 items-center justify-center rounded-xl border-[1.5px] border-ink bg-teal-soft text-teal shadow-[2px_2px_0_#211d19] transition group-hover:rotate-2 group-hover:bg-mustard">
                           {uploading ? (
                             <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
                           ) : (
                             <CloudUpload className="h-5 w-5" aria-hidden="true" />
                           )}
                         </span>
-                        <span className="mt-3 block max-w-full truncate font-display text-[14px] font-semibold tracking-[-0.01em] text-white">
+                        <span className="mt-3 block max-w-full truncate font-display text-[16px] font-semibold tracking-[-0.01em] text-ink">
                           {uploading
                             ? `Uploading ${uploading.name}`
-                            : 'Choose a video or drop it here'}
+                            : mode === 'caption'
+                              ? 'Choose a video to caption'
+                              : 'Choose a video or drop it here'}
                         </span>
-                        <span className="mt-1 block text-[11.5px] text-slate-500">
+                        <span className="mt-1 block text-[11px] font-medium text-ink-soft">
                           {uploading
                             ? `${Math.round(uploading.progress * 100)}% · keep this tab open`
-                            : 'MP4, MOV, WebM, MKV, AVI · up to 3 GB'}
+                            : mode === 'caption'
+                              ? 'We transcribe it, then you fix and style every line'
+                              : 'MP4, MOV, WebM, MKV, AVI · up to 3 GB'}
                         </span>
                       </label>
                       {uploading ? (
                         <div
-                          className="mx-auto mt-4 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-white/[0.07]"
+                          className="mx-auto mt-4 h-2 w-full max-w-sm overflow-hidden rounded-full border-[1.5px] border-ink bg-paper-deep"
                           role="progressbar"
                           aria-label="Upload progress"
                           aria-valuemin={0}
@@ -350,14 +441,16 @@ export function LinkStep({
                           aria-valuenow={Math.round(uploading.progress * 100)}
                         >
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500 transition-[width] duration-300"
+                            className="h-full rounded-full bg-tomato transition-[width] duration-300"
                             style={{ width: `${Math.max(3, uploading.progress * 100)}%` }}
                           />
                         </div>
                       ) : (
-                        <span className="mt-3 inline-flex items-center gap-1.5 text-[10.5px] text-slate-600">
-                          <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-                          Files stay on this server and auto-delete
+                        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-ink/25 bg-paper-soft px-2.5 py-1 text-[9.5px] font-semibold text-ink-soft">
+                          <ShieldCheck className="h-3 w-3 text-teal" aria-hidden="true" />
+                          {mode === 'caption'
+                            ? 'Nepali + 90 languages · 19 presets · 51 fonts · auto-delete'
+                            : 'Files stay on this server and auto-delete'}
                         </span>
                       )}
                     </div>
@@ -378,14 +471,11 @@ export function LinkStep({
               exit={{ opacity: 0 }}
               id="preview-error"
               role="alert"
-              className="mt-4 flex flex-col items-start gap-3 rounded-xl border border-rose-300/20 bg-rose-400/[0.06] px-4 py-3.5 text-sm text-rose-100 sm:flex-row sm:items-center sm:justify-between"
+              className="mt-4 flex flex-col items-start gap-3 rounded-xl border-[1.5px] border-ink bg-tomato-soft px-4 py-3.5 text-sm text-ink shadow-[3px_3px_0_#211d19] sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex items-start gap-2.5">
-                <TriangleAlert
-                  className="mt-0.5 h-4 w-4 shrink-0 text-rose-300"
-                  aria-hidden="true"
-                />
-                <p className="leading-relaxed">{error}</p>
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-tomato" aria-hidden="true" />
+                <p className="font-medium leading-relaxed">{error}</p>
               </div>
               {retryable && url.trim() ? (
                 <Button variant="secondary" size="sm" onClick={onPreview} loading={loading}>
@@ -400,22 +490,14 @@ export function LinkStep({
           id="supported-sources"
           className="mt-5 flex flex-wrap items-center justify-center gap-2"
         >
-          <span className="mr-1 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-600">
-            Works with
-          </span>
-          {[
-            'YouTube',
-            'Vimeo',
-            'X',
-            'TikTok',
-            'Twitch',
-            'Direct MP4',
-            'Local files',
-            '1,000+ sites',
-          ].map((source) => (
+          <span className="mr-1 font-hand text-[16px] text-ink-soft">plays nice with</span>
+          {SUPPORTED_SOURCES.map((source, index) => (
             <span
               key={source}
-              className="rounded-md border border-white/[0.065] bg-white/[0.025] px-2 py-1 text-[11px] text-slate-500 transition hover:border-white/10 hover:text-slate-300"
+              className={cn(
+                'rounded-md border border-ink/25 bg-paper-soft/70 px-2 py-1 text-[9.5px] font-semibold text-ink-soft shadow-[1px_1px_0_rgba(33,29,25,0.12)] transition hover:-translate-y-px hover:border-ink hover:text-ink',
+                index % 2 === 0 ? 'rotate-[-0.8deg]' : 'rotate-[0.8deg]',
+              )}
             >
               {source}
             </span>
@@ -424,40 +506,72 @@ export function LinkStep({
       </motion.div>
 
       <motion.div
-        initial={{ opacity: 0, y: 24 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.65, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
-        className="mt-16 grid gap-3 sm:mt-20 sm:grid-cols-3"
+        transition={{ duration: 0.6, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        className="mt-16 sm:mt-20"
       >
-        {FEATURES.map(({ icon: Icon, title, copy }, index) => (
-          <div
-            key={title}
-            className="glass-subtle group relative overflow-hidden rounded-2xl p-5 transition duration-300 hover:-translate-y-0.5 hover:border-white/10 hover:bg-white/[0.04]"
-          >
+        <div className="mb-5 flex items-center justify-center gap-3">
+          <span className="h-px w-10 bg-ink/30" aria-hidden="true" />
+          <p className="font-hand text-[19px] text-ink-soft">the good stuff, on tap</p>
+          <span className="h-px w-10 bg-ink/30" aria-hidden="true" />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {FEATURES.map(({ icon: Icon, title, copy, tone, iconTone, tilt }, index) => (
             <div
-              className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-cyan-300/[0.04] blur-2xl transition group-hover:bg-cyan-300/[0.09]"
-              aria-hidden="true"
-            />
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.035] text-slate-300">
-              <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
-            </span>
-            <h2 className="mt-4 font-display text-[15px] font-semibold tracking-[-0.01em] text-white">
-              {title}
-            </h2>
-            <p className="mt-1.5 text-[12.5px] leading-5 text-slate-500">{copy}</p>
-            <span className="absolute bottom-4 right-4 font-display text-[10px] tabular-nums text-slate-700">
-              0{index + 1}
-            </span>
-          </div>
-        ))}
+              key={title}
+              className={cn(
+                'group relative overflow-hidden rounded-[1.15rem] border-[1.5px] border-ink p-5 shadow-[4px_5px_0_#211d19] transition duration-300 hover:translate-y-[-3px] hover:rotate-0 hover:shadow-[5px_7px_0_#211d19]',
+                tone,
+                tilt,
+              )}
+            >
+              <span
+                className="absolute -right-7 -top-7 h-20 w-20 rounded-full border border-ink/10 bg-paper-soft/30"
+                aria-hidden="true"
+              />
+              <div className="flex items-start justify-between gap-3">
+                <span
+                  className={cn(
+                    'flex h-10 w-10 -rotate-3 items-center justify-center rounded-xl border-[1.5px] border-ink shadow-[2px_2px_0_#211d19] transition group-hover:rotate-3',
+                    iconTone,
+                  )}
+                >
+                  <Icon className="h-[19px] w-[19px]" aria-hidden="true" />
+                </span>
+                <span className="rounded-full border border-ink/30 px-2 py-1 font-hand text-[13px] leading-none text-ink-soft">
+                  0{index + 1}
+                </span>
+              </div>
+              <h2 className="mt-4 font-display text-[19px] font-semibold tracking-[-0.02em] text-ink">
+                {title}
+              </h2>
+              <p className="mt-1.5 text-[11.5px] leading-5 text-ink-soft">{copy}</p>
+              <svg
+                viewBox="0 0 40 10"
+                className="mt-4 h-2.5 w-10 text-ink/30 transition group-hover:text-tomato"
+                aria-hidden="true"
+              >
+                <path
+                  d="M1 6c5-4 9 5 14 0s9 4 12 0 8 2 12-1"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          ))}
+        </div>
       </motion.div>
 
       <motion.p
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.45, duration: 0.6 }}
-        className="mt-8 text-center text-[11px] leading-relaxed text-slate-600"
+        className="mx-auto mt-9 flex max-w-2xl flex-col items-center justify-center gap-2 text-center text-[10.5px] leading-relaxed text-ink-soft sm:flex-row"
       >
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-teal" aria-hidden="true" />
         Links and files are processed in a private temp workspace and automatically deleted. No
         account required.
       </motion.p>
@@ -507,10 +621,10 @@ function PreviewCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
-      className="glass overflow-hidden rounded-2xl p-2.5 shadow-card"
+      className="paper-card taped taped-teal overflow-hidden p-3"
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
-        <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0b1328] sm:w-64">
+        <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg border-[1.5px] border-ink bg-ink sm:w-64">
           {preview.thumbnail_url && !imageFailed ? (
             <img
               src={preview.thumbnail_url}
@@ -521,16 +635,16 @@ function PreviewCard({
               onError={() => setImageFailed(true)}
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_30%_20%,rgba(44,232,255,0.16),transparent_55%),radial-gradient(circle_at_80%_70%,rgba(255,79,216,0.13),transparent_50%)]">
-              <Film className="h-8 w-8 text-slate-500" aria-hidden="true" />
+            <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_30%_20%,rgba(242,190,79,0.3),transparent_55%),radial-gradient(circle_at_80%_70%,rgba(80,91,166,0.25),transparent_50%)]">
+              <Film className="h-8 w-8 text-paper-soft/70" aria-hidden="true" />
             </div>
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#04050c]/80 via-transparent to-transparent" />
-          <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 rounded-md bg-black/65 px-2 py-1 text-[10px] font-semibold tabular-nums text-white backdrop-blur">
-            <Clock3 className="h-3 w-3" aria-hidden="true" />
+          <div className="absolute inset-0 bg-gradient-to-t from-ink/80 via-transparent to-transparent" />
+          <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 rounded-md border border-ink bg-paper-soft px-2 py-1 text-[9px] font-bold uppercase tracking-[0.06em] tabular-nums text-ink shadow-[1px_1px_0_#211d19]">
+            <Clock3 className="h-3 w-3 text-tomato" aria-hidden="true" />
             {formatDuration(preview.duration)}
           </span>
-          <span className="absolute bottom-2.5 right-2.5 rounded-md border border-white/15 bg-black/45 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.13em] text-slate-200 backdrop-blur">
+          <span className="absolute bottom-2.5 right-2.5 rounded-md border border-ink bg-mustard px-2 py-1 text-[8px] font-bold uppercase tracking-[0.1em] text-ink shadow-[1px_1px_0_#211d19]">
             {sourceName(preview.source)}
           </span>
         </div>
@@ -538,21 +652,21 @@ function PreviewCard({
         <div className="flex min-w-0 flex-1 flex-col justify-between gap-4 px-1.5 pb-1 pt-1">
           <div>
             <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,0.8)]" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300/85">
+              <span className="inline-flex items-center gap-1 rounded-full border border-ink/30 bg-teal-soft px-2 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.12em] text-teal">
+                <span className="h-1.5 w-1.5 rounded-full bg-teal" />
                 Preview ready
               </span>
             </div>
-            <h2 className="mt-2.5 line-clamp-2 font-display text-xl font-semibold leading-snug tracking-[-0.025em] text-white">
+            <h2 className="mt-2.5 line-clamp-2 font-display text-[23px] font-semibold leading-[1.12] tracking-[-0.025em] text-ink">
               {preview.title}
             </h2>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-slate-500">
+            <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[10.5px] font-medium text-ink-soft">
               {preview.uploader ? <span>{preview.uploader}</span> : null}
-              <span className="hidden h-3 w-px bg-white/10 sm:block" />
+              <span className="hidden h-3 w-px bg-ink/20 sm:block" />
               <span>{formatDuration(preview.duration)} source</span>
               {preview.width && preview.height ? (
                 <>
-                  <span className="hidden h-3 w-px bg-white/10 sm:block" />
+                  <span className="hidden h-3 w-px bg-ink/20 sm:block" />
                   <span>
                     {preview.width}×{preview.height}
                   </span>
@@ -570,8 +684,8 @@ function PreviewCard({
           </div>
         </div>
       </div>
-      <div className="mt-3 flex items-center gap-2 border-t border-white/[0.055] px-2 py-2.5 text-[11px] text-slate-500">
-        <WandSparkles className="h-3.5 w-3.5 text-violet-300/70" aria-hidden="true" />
+      <div className="mt-3 flex items-center gap-2 border-t border-dashed border-ink/20 px-1.5 py-2.5 text-[10px] font-medium text-ink-soft">
+        <WandSparkles className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
         {preview.upload_id
           ? 'Your file stays in a private workspace and is deleted automatically.'
           : 'Nothing is downloaded until you confirm your clip settings.'}
@@ -586,6 +700,7 @@ function SourceTab({
   active,
   icon: Icon,
   label,
+  activeTone,
   disabled,
   onClick,
 }: {
@@ -594,6 +709,7 @@ function SourceTab({
   active: boolean
   icon: LucideIcon
   label: string
+  activeTone: string
   disabled?: boolean
   onClick: () => void
 }) {
@@ -608,14 +724,15 @@ function SourceTab({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'inline-flex h-9 items-center justify-center gap-2 rounded-lg text-[12px] font-semibold tracking-[-0.01em] transition disabled:cursor-not-allowed disabled:opacity-45',
+        'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg text-[11.5px] font-semibold tracking-[-0.01em] transition disabled:cursor-not-allowed disabled:opacity-45',
         active
-          ? 'bg-white/[0.075] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
-          : 'text-slate-500 hover:bg-white/[0.035] hover:text-slate-300',
+          ? cn('border-[1.5px] border-ink text-ink shadow-[1px_2px_0_#211d19]', activeTone)
+          : 'border-[1.5px] border-transparent text-ink-soft hover:bg-paper-soft/70 hover:text-ink',
       )}
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      {label}
+      <span className="hidden sm:inline">{label}</span>
+      <span className="sm:hidden">{label.split(' ')[0]}</span>
     </button>
   )
 }

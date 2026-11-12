@@ -1,0 +1,643 @@
+[
+  {
+    "name": "Inter",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Inter-Regular.ttf",
+      "bold": "Inter-Bold.ttf",
+      "italic": "Inter-Italic.ttf",
+      "bold_italic": "Inter-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Space Grotesk",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "SpaceGrotesk-Regular.ttf",
+      "bold": "SpaceGrotesk-Bold.ttf"
+    }
+  },
+  {
+    "name": "Poppins",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Poppins-Regular.ttf",
+      "bold": "Poppins-Bold.ttf",
+      "italic": "Poppins-Italic.ttf",
+      "bold_italic": "Poppins-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Bebas Neue",
+    "category": "Display",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "BebasNeue-Regular.ttf"
+    }
+  },
+  {
+    "name": "Mukta",
+    "category": "Devanagari",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Mukta-Regular.ttf",
+      "bold": "Mukta-Bold.ttf"
+    }
+  },
+  {
+    "name": "Noto Sans Devanagari",
+    "category": "Devanagari",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "NotoSansDevanagari-Regular.ttf",
+      "bold": "NotoSansDevanagari-Bold.ttf"
+    }
+  },
+  {
+    "name": "Hind",
+    "category": "Devanagari",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Hind-Regular.ttf",
+      "bold": "Hind-Bold.ttf"
+    }
+  },
+  {
+    "name": "Kalam",
+    "category": "Handwritten",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "cursive",
+    "files": {
+      "regular": "Kalam-Regular.ttf",
+      "bold": "Kalam-Bold.ttf"
+    }
+  },
+  {
+    "name": "Rajdhani",
+    "category": "Devanagari",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Rajdhani-Regular.ttf",
+      "bold": "Rajdhani-Bold.ttf"
+    }
+  },
+  {
+    "name": "Tiro Devanagari Hindi",
+    "category": "Devanagari",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "TiroDevanagariHindi-Regular.ttf",
+      "italic": "TiroDevanagariHindi-Italic.ttf"
+    }
+  },
+  {
+    "name": "Yatra One",
+    "category": "Devanagari",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "YatraOne-Regular.ttf"
+    }
+  },
+  {
+    "name": "Abril Fatface",
+    "category": "Display",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "AbrilFatface-Regular.ttf"
+    }
+  },
+  {
+    "name": "Alfa Slab One",
+    "category": "Display",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "AlfaSlabOne-Regular.ttf"
+    }
+  },
+  {
+    "name": "Anton",
+    "category": "Display",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Anton-Regular.ttf"
+    }
+  },
+  {
+    "name": "Bungee",
+    "category": "Display",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Bungee-Regular.ttf"
+    }
+  },
+  {
+    "name": "Oswald",
+    "category": "Display",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Oswald-Regular.ttf",
+      "bold": "Oswald-Bold.ttf"
+    }
+  },
+  {
+    "name": "Righteous",
+    "category": "Display",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Righteous-Regular.ttf"
+    }
+  },
+  {
+    "name": "Teko",
+    "category": "Display",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Teko-Regular.ttf",
+      "bold": "Teko-Bold.ttf"
+    }
+  },
+  {
+    "name": "Caveat",
+    "category": "Handwritten",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "cursive",
+    "files": {
+      "regular": "Caveat-Regular.ttf",
+      "bold": "Caveat-Bold.ttf"
+    }
+  },
+  {
+    "name": "Dancing Script",
+    "category": "Handwritten",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "cursive",
+    "files": {
+      "regular": "DancingScript-Regular.ttf",
+      "bold": "DancingScript-Bold.ttf"
+    }
+  },
+  {
+    "name": "Pacifico",
+    "category": "Handwritten",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "cursive",
+    "files": {
+      "regular": "Pacifico-Regular.ttf"
+    }
+  },
+  {
+    "name": "Permanent Marker",
+    "category": "Handwritten",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "cursive",
+    "files": {
+      "regular": "PermanentMarker-Regular.ttf"
+    }
+  },
+  {
+    "name": "Satisfy",
+    "category": "Handwritten",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "cursive",
+    "files": {
+      "regular": "Satisfy-Regular.ttf"
+    }
+  },
+  {
+    "name": "Courier Prime",
+    "category": "Monospace",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "monospace",
+    "files": {
+      "regular": "CourierPrime-Regular.ttf",
+      "bold": "CourierPrime-Bold.ttf",
+      "italic": "CourierPrime-Italic.ttf",
+      "bold_italic": "CourierPrime-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "IBM Plex Mono",
+    "category": "Monospace",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "monospace",
+    "files": {
+      "regular": "IBMPlexMono-Regular.ttf",
+      "bold": "IBMPlexMono-Bold.ttf",
+      "italic": "IBMPlexMono-Italic.ttf",
+      "bold_italic": "IBMPlexMono-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "JetBrains Mono",
+    "category": "Monospace",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "monospace",
+    "files": {
+      "regular": "JetBrainsMono-Regular.ttf",
+      "bold": "JetBrainsMono-Bold.ttf",
+      "italic": "JetBrainsMono-Italic.ttf",
+      "bold_italic": "JetBrainsMono-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Roboto Mono",
+    "category": "Monospace",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "monospace",
+    "files": {
+      "regular": "RobotoMono-Regular.ttf",
+      "bold": "RobotoMono-Bold.ttf",
+      "italic": "RobotoMono-Italic.ttf",
+      "bold_italic": "RobotoMono-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Space Mono",
+    "category": "Monospace",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "monospace",
+    "files": {
+      "regular": "SpaceMono-Regular.ttf",
+      "bold": "SpaceMono-Bold.ttf",
+      "italic": "SpaceMono-Italic.ttf",
+      "bold_italic": "SpaceMono-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Baloo 2",
+    "category": "Rounded",
+    "scripts": [
+      "latin",
+      "devanagari"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Baloo2-Regular.ttf",
+      "bold": "Baloo2-Bold.ttf"
+    }
+  },
+  {
+    "name": "Chewy",
+    "category": "Rounded",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Chewy-Regular.ttf"
+    }
+  },
+  {
+    "name": "Comfortaa",
+    "category": "Rounded",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Comfortaa-Regular.ttf",
+      "bold": "Comfortaa-Bold.ttf"
+    }
+  },
+  {
+    "name": "Fredoka",
+    "category": "Rounded",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Fredoka-Regular.ttf",
+      "bold": "Fredoka-Bold.ttf"
+    }
+  },
+  {
+    "name": "DM Sans",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "DMSans-Regular.ttf",
+      "bold": "DMSans-Bold.ttf",
+      "italic": "DMSans-Italic.ttf",
+      "bold_italic": "DMSans-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Figtree",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Figtree-Regular.ttf",
+      "bold": "Figtree-Bold.ttf",
+      "italic": "Figtree-Italic.ttf",
+      "bold_italic": "Figtree-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Manrope",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Manrope-Regular.ttf",
+      "bold": "Manrope-Bold.ttf"
+    }
+  },
+  {
+    "name": "Montserrat",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Montserrat-Regular.ttf",
+      "bold": "Montserrat-Bold.ttf",
+      "italic": "Montserrat-Italic.ttf",
+      "bold_italic": "Montserrat-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Nunito",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Nunito-Regular.ttf",
+      "bold": "Nunito-Bold.ttf",
+      "italic": "Nunito-Italic.ttf",
+      "bold_italic": "Nunito-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Outfit",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Outfit-Regular.ttf",
+      "bold": "Outfit-Bold.ttf"
+    }
+  },
+  {
+    "name": "Raleway",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "Raleway-Regular.ttf",
+      "bold": "Raleway-Bold.ttf",
+      "italic": "Raleway-Italic.ttf",
+      "bold_italic": "Raleway-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Work Sans",
+    "category": "Sans Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "sans-serif",
+    "files": {
+      "regular": "WorkSans-Regular.ttf",
+      "bold": "WorkSans-Bold.ttf",
+      "italic": "WorkSans-Italic.ttf",
+      "bold_italic": "WorkSans-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Bitter",
+    "category": "Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "serif",
+    "files": {
+      "regular": "Bitter-Regular.ttf",
+      "bold": "Bitter-Bold.ttf",
+      "italic": "Bitter-Italic.ttf",
+      "bold_italic": "Bitter-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Cormorant Garamond",
+    "category": "Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "serif",
+    "files": {
+      "regular": "CormorantGaramond-Regular.ttf",
+      "bold": "CormorantGaramond-Bold.ttf",
+      "italic": "CormorantGaramond-Italic.ttf",
+      "bold_italic": "CormorantGaramond-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "DM Serif Display",
+    "category": "Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "serif",
+    "files": {
+      "regular": "DMSerifDisplay-Regular.ttf",
+      "italic": "DMSerifDisplay-Italic.ttf"
+    }
+  },
+  {
+    "name": "Libre Baskerville",
+    "category": "Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "serif",
+    "files": {
+      "regular": "LibreBaskerville-Regular.ttf",
+      "bold": "LibreBaskerville-Bold.ttf",
+      "italic": "LibreBaskerville-Italic.ttf",
+      "bold_italic": "LibreBaskerville-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Lora",
+    "category": "Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "serif",
+    "files": {
+      "regular": "Lora-Regular.ttf",
+      "bold": "Lora-Bold.ttf",
+      "italic": "Lora-Italic.ttf",
+      "bold_italic": "Lora-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Merriweather",
+    "category": "Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "serif",
+    "files": {
+      "regular": "Merriweather-Regular.ttf",
+      "bold": "Merriweather-Bold.ttf",
+      "italic": "Merriweather-Italic.ttf",
+      "bold_italic": "Merriweather-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "PT Serif",
+    "category": "Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "serif",
+    "files": {
+      "regular": "PTSerif-Regular.ttf",
+      "bold": "PTSerif-Bold.ttf",
+      "italic": "PTSerif-Italic.ttf",
+      "bold_italic": "PTSerif-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Playfair Display",
+    "category": "Serif",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "serif",
+    "files": {
+      "regular": "PlayfairDisplay-Regular.ttf",
+      "bold": "PlayfairDisplay-Bold.ttf",
+      "italic": "PlayfairDisplay-Italic.ttf",
+      "bold_italic": "PlayfairDisplay-BoldItalic.ttf"
+    }
+  },
+  {
+    "name": "Arial",
+    "category": "System",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "Arial, Helvetica, sans-serif",
+    "files": {}
+  },
+  {
+    "name": "DejaVu Sans",
+    "category": "System",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "DejaVu Sans, sans-serif",
+    "files": {}
+  },
+  {
+    "name": "Georgia",
+    "category": "System",
+    "scripts": [
+      "latin"
+    ],
+    "fallback": "Georgia, serif",
+    "files": {}
+  }
+]

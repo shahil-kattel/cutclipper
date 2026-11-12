@@ -51,6 +51,101 @@ const PIPELINE: Array<{ stage: JobStage; label: string; detail: string; icon: Lu
   { stage: 'packaging', label: 'Packaging', detail: 'ZIP and preview art', icon: PackageCheck },
 ]
 
+const CAPTION_PIPELINE: Array<{
+  stage: JobStage
+  label: string
+  detail: string
+  icon: LucideIcon
+}> = [
+  { stage: 'fetching', label: 'Preparing', detail: 'Your uploaded video', icon: Download },
+  {
+    stage: 'transcribing',
+    label: 'Transcribing',
+    detail: 'Speech → editable captions',
+    icon: AudioLines,
+  },
+  { stage: 'captioning', label: 'Animating', detail: 'Font, preset, and timing', icon: Captions },
+  { stage: 'rendering', label: 'Rendering', detail: 'Burning captions · H.264', icon: Film },
+  { stage: 'packaging', label: 'Packaging', detail: 'MP4 download', icon: PackageCheck },
+]
+
+const RESTYLE_CLIP_PIPELINE: Array<{
+  stage: JobStage
+  label: string
+  detail: string
+  icon: LucideIcon
+}> = [
+  {
+    stage: 'reframing',
+    label: 'Restyling the cut',
+    detail: 'Same clip plan · fresh caption layer',
+    icon: Captions,
+  },
+  {
+    stage: 'rendering',
+    label: 'Rendering',
+    detail: 'H.264 + AAC · brand-new export',
+    icon: Film,
+  },
+  {
+    stage: 'packaging',
+    label: 'Packaging',
+    detail: 'Fresh ZIP and preview art',
+    icon: PackageCheck,
+  },
+]
+
+const RESTYLE_CAPTION_PIPELINE: Array<{
+  stage: JobStage
+  label: string
+  detail: string
+  icon: LucideIcon
+}> = [
+  {
+    stage: 'captioning',
+    label: 'Restyling captions',
+    detail: 'New preset, font, and timing',
+    icon: Captions,
+  },
+  {
+    stage: 'rendering',
+    label: 'Rendering',
+    detail: 'H.264 + AAC · brand-new export',
+    icon: Film,
+  },
+  {
+    stage: 'packaging',
+    label: 'Packaging',
+    detail: 'Fresh download ready to check',
+    icon: PackageCheck,
+  },
+]
+
+const RESTYLE_CLIP_STAGE_INDEX: Record<string, number> = {
+  queued: 0,
+  fetching: 0,
+  probing: 0,
+  reframing: 0,
+  captioning: 0,
+  rendering: 1,
+  packaging: 2,
+  complete: 3,
+  failed: 0,
+  cancelled: 0,
+}
+
+const RESTYLE_CAPTION_STAGE_INDEX: Record<string, number> = {
+  queued: 0,
+  fetching: 0,
+  probing: 0,
+  captioning: 0,
+  rendering: 1,
+  packaging: 2,
+  complete: 3,
+  failed: 0,
+  cancelled: 0,
+}
+
 const STAGE_INDEX: Record<string, number> = {
   queued: 0,
   fetching: 0,
@@ -66,6 +161,19 @@ const STAGE_INDEX: Record<string, number> = {
   cancelled: 0,
 }
 
+const CAPTION_STAGE_INDEX: Record<string, number> = {
+  queued: 0,
+  fetching: 0,
+  probing: 0,
+  transcribing: 1,
+  captioning: 2,
+  rendering: 3,
+  packaging: 4,
+  complete: 5,
+  failed: 0,
+  cancelled: 0,
+}
+
 interface ProcessingStepProps {
   job: Job | null
   connection: StreamConnection
@@ -75,6 +183,7 @@ interface ProcessingStepProps {
   onBack: () => void
   onRetry: () => void
   onStartOver: () => void
+  onBackToPrevious?: () => void
 }
 
 export function ProcessingStep({
@@ -86,10 +195,27 @@ export function ProcessingStep({
   onBack,
   onRetry,
   onStartOver,
+  onBackToPrevious,
 }: ProcessingStepProps) {
   const [elapsed, setElapsed] = useState(0)
   const terminalFailure = job?.status === 'failed' || job?.status === 'cancelled'
-  const currentIndex = Math.min(PIPELINE.length, STAGE_INDEX[job?.stage ?? 'queued'] ?? 0)
+  const captionJob = job?.mode === 'captions'
+  const restyleJob = job?.is_restyle === true
+  const pipeline = restyleJob
+    ? captionJob
+      ? RESTYLE_CAPTION_PIPELINE
+      : RESTYLE_CLIP_PIPELINE
+    : captionJob
+      ? CAPTION_PIPELINE
+      : PIPELINE
+  const stageIndex = restyleJob
+    ? captionJob
+      ? RESTYLE_CAPTION_STAGE_INDEX
+      : RESTYLE_CLIP_STAGE_INDEX
+    : captionJob
+      ? CAPTION_STAGE_INDEX
+      : STAGE_INDEX
+  const currentIndex = Math.min(pipeline.length, stageIndex[job?.stage ?? 'queued'] ?? 0)
   const progress = job?.progress ?? 0
   const isComplete = job?.status === 'completed'
 
@@ -112,6 +238,7 @@ export function ProcessingStep({
         onBack={onBack}
         onRetry={onRetry}
         onStartOver={onStartOver}
+        onBackToPrevious={onBackToPrevious}
       />
     )
   }
@@ -137,17 +264,26 @@ export function ProcessingStep({
         <div>
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-300 opacity-40" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-300" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-tomato opacity-40" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-tomato" />
             </span>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300/75">
-              Render stream · {connectionLabel}
+            <p className="text-[9.5px] font-bold uppercase tracking-[0.18em] text-tomato">
+              {restyleJob ? 'Caption refresh' : 'Render stream'} · {connectionLabel}
             </p>
           </div>
-          <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.045em] text-white sm:text-[2.5rem]">
-            {isComplete ? 'Final touches.' : 'Cutting your moments.'}
-          </h1>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
+          <div className="mt-2 flex flex-wrap items-end gap-x-4">
+            <h1 className="font-display text-4xl font-semibold tracking-[-0.05em] text-ink sm:text-[2.8rem]">
+              {isComplete
+                ? 'Final touches.'
+                : restyleJob
+                  ? 'Refreshing your captions.'
+                  : 'Cutting your moments.'}
+            </h1>
+            <span className="mb-1.5 hidden -rotate-2 font-hand text-[18px] text-ink-soft sm:inline">
+              {isComplete ? 'almost there' : restyleJob ? 'same cut, new look' : 'the scissors are busy'}
+            </span>
+          </div>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-ink-soft">
             {job?.video?.title ?? 'Your video is moving through the CutClipper pipeline.'}
           </p>
         </div>
@@ -175,13 +311,13 @@ export function ProcessingStep({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.55, delay: 0.04, ease: [0.22, 1, 0.36, 1] }}
-          className="glass relative overflow-hidden rounded-2xl p-6"
+          className="paper-card taped relative overflow-hidden p-6"
         >
-          <div className="pointer-events-none absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-300/[0.055] blur-[70px]" />
+          <div className="paper-dots pointer-events-none absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-20" />
           <div className="relative flex flex-col items-center">
             <ProgressRing progress={ringProgress} stage={job?.stage_label ?? 'Starting'} />
-            <div className="mt-5 flex items-center gap-2 text-[11px] text-slate-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-violet-300 shadow-[0_0_8px_rgba(155,109,255,0.8)]" />
+            <div className="mt-5 flex items-center gap-2 text-[11px] text-ink-soft">
+              <span className="h-1.5 w-1.5 rounded-full border border-ink bg-tomato" />
               {isComplete ? 'Encoding finished' : (job?.message ?? 'Waiting for a worker')}
             </div>
             <div className="mt-5 grid w-full grid-cols-2 gap-2">
@@ -191,7 +327,7 @@ export function ProcessingStep({
                 value={job?.video ? formatDuration(job.video.duration) : '—'}
               />
             </div>
-            <div className="mt-5 w-full border-t border-white/[0.055] pt-4">
+            <div className="mt-5 w-full border-t border-dashed border-ink/20 pt-4">
               {job?.can_cancel ? (
                 <Button
                   variant="ghost"
@@ -199,13 +335,13 @@ export function ProcessingStep({
                   onClick={onCancel}
                   loading={cancelling}
                   icon={X}
-                  className="w-full text-slate-400 hover:text-rose-200"
+                  className="w-full text-ink-soft hover:text-tomato"
                 >
                   {cancelling ? 'Cancelling' : 'Cancel render'}
                 </Button>
               ) : (
-                <div className="flex items-center justify-center gap-2 py-2 text-[11px] text-slate-500">
-                  <Check className="h-3.5 w-3.5 text-emerald-300" aria-hidden="true" />
+                <div className="flex items-center justify-center gap-2 py-2 text-[11px] text-ink-soft">
+                  <Check className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
                   {isComplete ? 'Ready to download' : 'Saving your progress'}
                 </div>
               )}
@@ -217,31 +353,31 @@ export function ProcessingStep({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.55, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-          className="glass relative overflow-hidden rounded-2xl"
+          className="glass relative overflow-hidden rounded-2xl bg-paper-soft"
         >
-          <div className="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(ellipse_at_70%_-20%,rgba(155,109,255,0.16),transparent_65%)]" />
+          <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-mustard-soft/70" />
           <div className="relative flex h-full flex-col">
-            <div className="flex items-center justify-between gap-4 border-b border-white/[0.055] px-5 py-4 sm:px-6">
+            <div className="flex items-center justify-between gap-4 border-b border-dashed border-ink/20 px-5 py-4 sm:px-6">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ink-soft">
                   Processing manifest
                 </p>
-                <p className="mt-1 font-display text-[15px] font-semibold tracking-[-0.02em] text-white">
+                <p className="mt-1 font-display text-[15px] font-semibold tracking-[-0.02em] text-ink">
                   {isComplete ? 'All stages complete' : (job?.stage_label ?? 'Getting ready')}
                 </p>
               </div>
-              <span className="font-display text-2xl font-semibold tabular-nums text-white">
+              <span className="font-display text-2xl font-semibold tabular-nums text-ink">
                 {Math.round(ringProgress)}
-                <span className="ml-0.5 text-xs text-slate-600">%</span>
+                <span className="ml-0.5 text-xs text-ink-faint">%</span>
               </span>
             </div>
 
             <div className="flex-1 px-4 py-3 sm:px-5">
-              {PIPELINE.map(({ stage, label, detail, icon: Icon }, index) => {
+              {pipeline.map(({ stage, label, detail, icon: Icon }, index) => {
                 const done = index < currentIndex || isComplete
                 const active = index === currentIndex && !isComplete
                 const stepDetail =
-                  stage === 'fetching' && job?.video?.source === 'Upload'
+                  !captionJob && stage === 'fetching' && job?.video?.source === 'Upload'
                     ? 'Using your uploaded file'
                     : detail
                 return (
@@ -249,14 +385,14 @@ export function ProcessingStep({
                     key={stage}
                     className={cn(
                       'relative flex items-center gap-3.5 rounded-xl px-2 py-2.5 transition-colors',
-                      active && 'bg-white/[0.035]',
+                      active && 'border border-dashed border-ink/25 bg-mustard-soft/55',
                     )}
                   >
-                    {index < PIPELINE.length - 1 ? (
+                    {index < pipeline.length - 1 ? (
                       <span
                         className={cn(
                           'absolute left-[1.37rem] top-[2.65rem] h-[calc(100%-1.85rem)] w-px',
-                          done ? 'bg-cyan-300/30' : 'bg-white/[0.075]',
+                          done ? 'bg-teal/50' : 'bg-ink/15',
                         )}
                         aria-hidden="true"
                       />
@@ -265,10 +401,10 @@ export function ProcessingStep({
                       className={cn(
                         'relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition duration-300',
                         done
-                          ? 'border-cyan-300/20 bg-cyan-300/[0.08] text-cyan-200'
+                          ? 'border-ink/30 bg-teal-soft text-teal'
                           : active
-                            ? 'border-violet-300/30 bg-violet-300/10 text-violet-100 shadow-[0_0_22px_-8px_rgba(155,109,255,0.7)]'
-                            : 'border-white/[0.07] bg-white/[0.02] text-slate-600',
+                            ? 'border-[1.5px] border-ink bg-mustard text-ink shadow-[2px_2px_0_#211d19]'
+                            : 'border-ink/20 bg-paper text-ink-faint',
                       )}
                     >
                       {done ? (
@@ -290,7 +426,7 @@ export function ProcessingStep({
                         <p
                           className={cn(
                             'text-[12.5px] font-medium transition-colors',
-                            active ? 'text-white' : done ? 'text-slate-300' : 'text-slate-600',
+                            active ? 'text-ink' : done ? 'text-ink-soft' : 'text-ink-faint',
                           )}
                         >
                           {label}
@@ -298,18 +434,18 @@ export function ProcessingStep({
                         <p
                           className={cn(
                             'mt-0.5 truncate text-[10.5px]',
-                            active ? 'text-slate-400' : 'text-slate-600',
+                            active ? 'text-ink-soft' : 'text-ink-faint',
                           )}
                         >
                           {stepDetail}
                         </p>
                       </div>
                       {active ? (
-                        <span className="shrink-0 rounded-full border border-violet-300/20 bg-violet-300/[0.07] px-2 py-0.5 text-[8px] font-semibold uppercase tracking-[0.14em] text-violet-200">
+                        <span className="shrink-0 rounded border border-ink bg-mustard px-2 py-0.5 text-[8px] font-bold uppercase tracking-[0.13em] text-ink shadow-[1px_1px_0_#211d19]">
                           Working
                         </span>
                       ) : done ? (
-                        <span className="shrink-0 text-[9px] font-medium uppercase tracking-[0.13em] text-slate-600">
+                        <span className="shrink-0 text-[9px] font-medium uppercase tracking-[0.13em] text-ink-faint">
                           Done
                         </span>
                       ) : null}
@@ -319,7 +455,7 @@ export function ProcessingStep({
               })}
             </div>
 
-            <div className="border-t border-white/[0.055] px-5 py-3.5 sm:px-6">
+            <div className="border-t border-dashed border-ink/20 px-5 py-3.5 sm:px-6">
               <AnimatePresence mode="wait">
                 <motion.p
                   key={job?.message ?? 'waiting'}
@@ -327,7 +463,7 @@ export function ProcessingStep({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.2 }}
-                  className="truncate text-[11px] text-slate-500"
+                  className="truncate text-[11px] text-ink-soft"
                   aria-live="polite"
                 >
                   {job?.message ?? 'Waiting for the worker to pick up your job…'}
@@ -342,11 +478,13 @@ export function ProcessingStep({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4, duration: 0.5 }}
-        className="mt-5 flex flex-col items-center justify-between gap-3 rounded-xl border border-white/[0.055] bg-white/[0.018] px-4 py-3 text-[11px] text-slate-500 sm:flex-row"
+        className="mt-5 flex -rotate-[0.3deg] flex-col items-center justify-between gap-3 rounded-xl border-[1.5px] border-ink bg-mustard-soft px-4 py-3 text-[10.5px] font-medium text-ink shadow-[2px_3px_0_#211d19] sm:flex-row"
       >
         <span className="inline-flex items-center gap-2">
-          <Sparkles className="h-3.5 w-3.5 text-violet-300/70" aria-hidden="true" />
-          Rendering can take a few minutes on longer videos. Keep this tab open.
+          <Sparkles className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
+          {restyleJob
+            ? 'Only the caption layer is re-rendering. Your original cut stays fixed.'
+            : 'Rendering can take a few minutes on longer videos. Keep this tab open.'}
         </span>
         <span className="tabular-nums">
           {job?.clips.length ?? 0} of {job?.settings.clip_count ?? 0} clips encoded
@@ -369,17 +507,17 @@ function ProgressRing({ progress, stage }: { progress: number; stage: string }) 
       aria-valuenow={Math.round(progress)}
       aria-label={`${stage}: ${Math.round(progress)} percent`}
     >
-      <div className="absolute inset-3 rounded-full border border-dashed border-white/[0.065] [animation:spin_24s_linear_infinite]" />
-      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(155,109,255,0.1),transparent_67%)]" />
+      <div className="absolute inset-3 rounded-full border-[1.5px] border-dashed border-ink/20 [animation:spin_24s_linear_infinite]" />
+      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(242,190,79,0.2),transparent_67%)]" />
       <svg viewBox="0 0 200 200" className="absolute inset-0 h-full w-full -rotate-90">
         <defs>
           <linearGradient id="progress-gradient" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#2ce8ff" />
-            <stop offset="0.55" stopColor="#9b6dff" />
-            <stop offset="1" stopColor="#ff4fd8" />
+            <stop offset="0" stopColor="#b8442f" />
+            <stop offset="0.55" stopColor="#f2be4f" />
+            <stop offset="1" stopColor="#32695b" />
           </linearGradient>
           <filter id="progress-glow" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feGaussianBlur stdDeviation="2.4" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -402,16 +540,16 @@ function ProgressRing({ progress, stage }: { progress: number; stage: string }) 
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="font-display text-[2.65rem] font-semibold tabular-nums leading-none tracking-[-0.06em] text-white">
+        <span className="font-display text-[2.65rem] font-semibold tabular-nums leading-none tracking-[-0.06em] text-ink">
           {Math.round(progress)}
-          <span className="ml-1 text-sm font-normal text-slate-500">%</span>
+          <span className="ml-1 text-sm font-normal text-ink-soft">%</span>
         </span>
-        <span className="mt-2 max-w-[8.5rem] truncate text-center text-[10px] font-semibold uppercase tracking-[0.17em] text-slate-500">
+        <span className="mt-2 max-w-[8.5rem] truncate text-center text-[10px] font-semibold uppercase tracking-[0.17em] text-ink-soft">
           {stage}
         </span>
       </div>
       <span
-        className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-200 shadow-[0_0_14px_rgba(44,232,255,0.9)] transition-all duration-700"
+        className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-ink bg-tomato shadow-[1px_1px_0_#211d19] transition-all duration-700"
         style={
           {
             left: `${50 + 41 * Math.cos((-90 + 3.6 * progress) * (Math.PI / 180))}%`,
@@ -425,11 +563,11 @@ function ProgressRing({ progress, stage }: { progress: number; stage: string }) 
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/[0.065] bg-white/[0.025] px-3 py-2.5 text-center">
-      <p className="font-display text-lg font-semibold tabular-nums leading-none text-white">
+    <div className="paper-inset px-3 py-2.5 text-center">
+      <p className="font-display text-lg font-semibold tabular-nums leading-none text-ink">
         {value}
       </p>
-      <p className="mt-1.5 text-[9px] font-medium uppercase tracking-[0.13em] text-slate-600">
+      <p className="mt-1.5 text-[9px] font-medium uppercase tracking-[0.13em] text-ink-faint">
         {label}
       </p>
     </div>
@@ -442,37 +580,32 @@ function FailureState({
   onBack,
   onRetry,
   onStartOver,
+  onBackToPrevious,
 }: {
   job: Job
   generating: boolean
   onBack: () => void
   onRetry: () => void
   onStartOver: () => void
+  onBackToPrevious?: () => void
 }) {
   const cancelled = job.status === 'cancelled'
   return (
-    <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center py-10 text-center">
+    <div className="paper-card taped mx-auto my-8 flex min-h-[60vh] max-w-xl -rotate-[0.4deg] flex-col items-center justify-center px-6 py-10 text-center sm:px-8">
       <motion.div
         initial={{ opacity: 0, scale: 0.92 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
         className={cn(
-          'relative flex h-24 w-24 items-center justify-center rounded-full border',
-          cancelled
-            ? 'border-slate-400/20 bg-slate-400/[0.05]'
-            : 'border-rose-300/25 bg-rose-400/[0.07]',
+          'relative flex h-24 w-24 -rotate-2 items-center justify-center rounded-2xl border-[1.5px] border-ink shadow-[3px_4px_0_#211d19]',
+          cancelled ? 'bg-paper-deep' : 'bg-tomato-soft',
         )}
       >
-        <div
-          className={cn(
-            'absolute inset-4 rounded-full blur-xl',
-            cancelled ? 'bg-slate-400/10' : 'bg-rose-400/20',
-          )}
-        />
+        <div className={cn('paper-dots absolute inset-3 rounded-xl opacity-30')} />
         {cancelled ? (
-          <X className="relative h-8 w-8 text-slate-300" aria-hidden="true" />
+          <X className="relative h-8 w-8 text-ink-soft" aria-hidden="true" />
         ) : (
-          <TriangleAlert className="relative h-8 w-8 text-rose-200" aria-hidden="true" />
+          <TriangleAlert className="relative h-8 w-8 text-tomato" aria-hidden="true" />
         )}
       </motion.div>
       <motion.div
@@ -480,24 +613,24 @@ function FailureState({
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.4 }}
       >
-        <p className="mt-6 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+        <p className="mt-6 text-[9.5px] font-bold uppercase tracking-[0.18em] text-tomato">
           {cancelled ? 'Render cancelled' : 'Pipeline stopped'}
         </p>
-        <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.045em] text-white">
+        <h1 className="mt-2 font-display text-4xl font-semibold tracking-[-0.05em] text-ink">
           {cancelled ? 'That cut is over.' : "That cut didn't land."}
         </h1>
-        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-400">
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-ink-soft">
           {cancelled
             ? 'The render stopped before completion. Your source and settings are still here if you want to try again.'
             : job.error_message ||
               'The render stopped unexpectedly. Try again, or adjust your clip settings.'}
         </p>
         {job.error_code ? (
-          <p className="mt-3 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-600">
+          <p className="mt-3 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-faint">
             {job.error_code.replace(/_/g, ' ')}
           </p>
         ) : null}
-        <div className="mt-7 flex flex-col justify-center gap-2.5 sm:flex-row">
+        <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
           <Button onClick={onRetry} loading={generating} icon={RefreshCw} disabled={generating}>
             {cancelled ? 'Resume with same settings' : 'Try again'}
           </Button>
@@ -508,8 +641,17 @@ function FailureState({
             New link
           </Button>
         </div>
+        {onBackToPrevious ? (
+          <button
+            type="button"
+            onClick={onBackToPrevious}
+            className="mt-4 inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-ink-soft underline decoration-dashed underline-offset-4 transition hover:text-tomato"
+          >
+            Back to the previous finished export
+          </button>
+        ) : null}
         {!cancelled && !job.retryable ? (
-          <p className="mt-4 text-[11px] text-slate-600">
+          <p className="mt-4 text-[11px] text-ink-faint">
             This error may be caused by the source link. Try a different URL or adjust your
             settings.
           </p>

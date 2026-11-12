@@ -13,7 +13,15 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource/bebas-neue": "^5.3.0",
+    "@fontsource/caveat": "^5.3.0",
+    "@fontsource/hind": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
+    "@fontsource/kalam": "^5.3.0",
+    "@fontsource/mukta": "^5.3.0",
+    "@fontsource/noto-sans-devanagari": "^5.3.0",
+    "@fontsource/poppins": "^5.3.0",
     "@fontsource/space-grotesk": "^5.3.0",
     "framer-motion": "^14.12.0",
     "lucide-react": "^1.72.0",

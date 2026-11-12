@@ -15,27 +15,59 @@ export default {
         65: '0.65',
       },
       colors: {
-        void: '#04050c',
-        ink: '#070a16',
-        navy: '#0a1024',
-        panel: '#0c1226',
-        neon: {
-          cyan: '#2ce8ff',
-          violet: '#9b6dff',
-          magenta: '#ff4fd8',
+        paper: {
+          DEFAULT: '#f4ecd9',
+          soft: '#fffaf0',
+          deep: '#e8dcc5',
+          shadow: '#d8c9ae',
         },
+        ink: {
+          DEFAULT: '#211d19',
+          soft: '#6d6154',
+          faint: '#746758',
+        },
+        tomato: {
+          DEFAULT: '#b8442f',
+          bright: '#c24730',
+          soft: '#f5d6cc',
+        },
+        mustard: {
+          DEFAULT: '#f2be4f',
+          soft: '#fae9b9',
+        },
+        teal: {
+          DEFAULT: '#32695b',
+          soft: '#d5e5dc',
+        },
+        periwinkle: {
+          DEFAULT: '#505ba6',
+          soft: '#e0e2f5',
+        },
+        blush: {
+          DEFAULT: '#ea9da0',
+          soft: '#f7dcda',
+        },
+        void: '#211d19',
+        navy: '#e8dcc5',
+        panel: '#fffaf0',
       },
       fontFamily: {
-        display: ['"Space Grotesk"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['Fraunces', 'Georgia', 'serif'],
+        sans: ['Poppins', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        hand: ['Caveat', 'cursive'],
+        label: ['"Space Grotesk"', 'ui-sans-serif', 'sans-serif'],
       },
       boxShadow: {
-        'glow-cyan': '0 0 32px -8px rgba(44, 232, 255, 0.45)',
-        'glow-violet': '0 0 40px -10px rgba(155, 109, 255, 0.55)',
-        card: '0 30px 80px -40px rgba(0, 0, 0, 0.9)',
+        'paper-sm': '2px 3px 0 #211d19',
+        paper: '4px 5px 0 #211d19',
+        'paper-lg': '6px 7px 0 #211d19',
+        card: '4px 5px 0 #211d19',
+        'glow-cyan': '2px 3px 0 #211d19',
+        'glow-violet': '2px 3px 0 #211d19',
       },
       backgroundImage: {
-        'hero-radial': 'radial-gradient(ellipse at top, rgba(155,109,255,0.16), transparent 55%)',
+        'hero-radial':
+          'radial-gradient(ellipse at top, rgba(242,190,79,0.28), transparent 62%)',
       },
       keyframes: {
         shimmer: {

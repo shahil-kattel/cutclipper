@@ -5,27 +5,38 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from threading import Event
 
 from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app import __version__
+from app.caption_fonts import catalog_for_client, safe_font_file
 from app.config import Settings
 from app.core.errors import AppError, ClipNotFoundError, JobNotFoundError
 from app.core.validation import validate_remote_url
+from app.pipeline.captions import build_caption_segments
 from app.pipeline.jobs import JobManager
 from app.pipeline.renderer import safe_title_slug
 from app.schemas import (
+    CAPTION_FONTS,
     ApiConfig,
+    CaptionStyle,
     ClipSettings,
     CreateJobRequest,
     HealthResponse,
     JobOut,
     PreviewRequest,
     PreviewResponse,
+    RestyleCaptionsRequest,
+    TranscribeRequest,
+    TranscriptResponse,
+    TranscriptWordOut,
 )
+from app.services.audio import extract_audio
 from app.services.downloader import fetch_metadata
 from app.services.media import get_media_tools
+from app.services.transcriber import transcribe_audio
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -70,9 +81,37 @@ async def api_config(request: Request) -> ApiConfig:
     settings = _settings(request)
     return ApiConfig(
         max_video_duration_seconds=settings.max_video_duration_seconds,
+        max_upload_bytes=settings.max_upload_bytes,
         max_clip_count=20,
         supported_aspect_ratios=["9:16", "1:1", "4:5"],
+        caption_fonts=list(CAPTION_FONTS),
+        caption_styles=[style.value for style in CaptionStyle],
+        transcription_languages=[
+            {"code": "auto", "label": "Detect language"},
+            {"code": "en", "label": "English"},
+            {"code": "ne", "label": "नेपाली (Nepali)"},
+            {"code": "hi", "label": "हिन्दी (Hindi)"},
+        ],
         default_settings=ClipSettings(),
+    )
+
+
+@router.get("/caption-fonts")
+async def caption_font_catalog() -> list[dict[str, object]]:
+    return catalog_for_client()
+
+
+@router.get("/caption-fonts/{filename}")
+async def caption_font_file(filename: str) -> FileResponse:
+    path = safe_font_file(filename)
+    if path is None:
+        raise AppError(
+            "That caption font is not available.", code="font_not_found", status_code=404
+        )
+    return FileResponse(
+        path,
+        media_type="font/ttf",
+        headers={"Cache-Control": "public, max-age=604800, immutable"},
     )
 
 
@@ -96,6 +135,117 @@ async def upload_thumbnail(upload_id: str, request: Request) -> FileResponse:
     )
 
 
+_VIDEO_MEDIA_TYPES = {
+    ".mp4": "video/mp4",
+    ".m4v": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo",
+}
+
+
+@router.get("/uploads/{upload_id}/video")
+async def upload_video_stream(upload_id: str, request: Request) -> FileResponse:
+    upload = await asyncio.to_thread(_manager(request).uploads.load, upload_id)
+    media_type = _VIDEO_MEDIA_TYPES.get(upload.path.suffix.lower(), "application/octet-stream")
+    return FileResponse(
+        upload.path,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+
+@router.post("/captions/transcribe", response_model=TranscriptResponse)
+async def transcribe_captions(payload: TranscribeRequest, request: Request) -> TranscriptResponse:
+    manager = _manager(request)
+    settings = _settings(request)
+    upload = await asyncio.to_thread(manager.uploads.load, payload.upload_id)
+    language_key = payload.language or "auto"
+    quality_key = payload.quality or "default"
+    cache_path = upload.path.parent / f"transcript_{language_key}_{quality_key}.json"
+    if cache_path.exists() and not payload.force:
+        try:
+            cached = TranscriptResponse.model_validate_json(cache_path.read_text("utf-8"))
+            cached.cached = True
+            return cached
+        except (OSError, ValueError):
+            logger.warning("caption transcript cache unreadable", extra={"path": str(cache_path)})
+
+    metadata = upload.metadata
+    if metadata.has_audio is False:
+        return TranscriptResponse(
+            upload_id=upload.id,
+            duration=metadata.duration,
+            segments=[],
+            words=[],
+            warnings=["The video has no audio track, so no speech could be transcribed."],
+        )
+
+    work_dir = upload.path.parent / "transcribe"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    audio_path = work_dir / "audio.wav"
+    if not audio_path.exists():
+        await extract_audio(upload.path, audio_path, cancel_event=Event())
+
+    language = payload.language if payload.language not in {None, "auto"} else None
+    if language == "ne":
+        quality_models = {"fast": "small", "balanced": "medium", "best": "large-v3"}
+    else:
+        quality_models = {
+            "fast": settings.whisper_model,
+            "balanced": "small",
+            "best": "medium",
+        }
+    model_size = quality_models.get(payload.quality) if payload.quality else None
+    transcript = await transcribe_audio(
+        audio_path,
+        metadata.duration,
+        settings,
+        cancel_event=Event(),
+        language=language,
+        model_size=model_size,
+    )
+    segments = build_caption_segments(transcript.words)
+    warnings = list(transcript.warnings)
+    if transcript.language == "ne" and language != "ne":
+        warnings.append(
+            "Nepali was detected. Pick नेपाली and Balanced or Best accuracy to re-transcribe "
+            "with the dedicated Nepali model for better results."
+        )
+    if not segments:
+        warnings.append("No speech was detected in this video. You can add caption lines manually.")
+    response = TranscriptResponse(
+        upload_id=upload.id,
+        duration=metadata.duration,
+        language=transcript.language,
+        language_probability=transcript.language_probability,
+        segments=segments,
+        words=[
+            TranscriptWordOut(start=word.start, end=word.end, text=word.text)
+            for word in transcript.words
+        ],
+        warnings=warnings,
+    )
+    try:
+        cache_path.write_text(response.model_dump_json(), encoding="utf-8")
+    except OSError:
+        logger.warning("caption transcript cache write failed", extra={"path": str(cache_path)})
+    logger.info(
+        "caption transcript ready",
+        extra={
+            "upload_id": upload.id,
+            "language": transcript.language,
+            "segments": len(segments),
+            "words": len(transcript.words),
+        },
+    )
+    return response
+
+
 @router.post("/preview", response_model=PreviewResponse)
 async def preview_video(payload: PreviewRequest, request: Request) -> PreviewResponse:
     settings = _settings(request)
@@ -113,10 +263,33 @@ async def preview_video(payload: PreviewRequest, request: Request) -> PreviewRes
 async def create_job(payload: CreateJobRequest, request: Request) -> JobOut:
     manager = _manager(request)
     if payload.upload_id:
-        record = await manager.create_job(None, payload.settings, upload_id=payload.upload_id)
+        record = await manager.create_job(
+            None,
+            payload.settings,
+            upload_id=payload.upload_id,
+            mode=payload.mode,
+            segments=payload.segments,
+            language=payload.language,
+        )
     else:
         normalized = await validate_remote_url(payload.url or "")
-        record = await manager.create_job(normalized, payload.settings)
+        record = await manager.create_job(
+            normalized,
+            payload.settings,
+            mode=payload.mode,
+            language=payload.language,
+        )
+    return manager.snapshot(record.id)
+
+
+@router.post("/jobs/{job_id}/restyle", response_model=JobOut, status_code=202)
+async def restyle_captions(
+    job_id: str,
+    payload: RestyleCaptionsRequest,
+    request: Request,
+) -> JobOut:
+    manager = _manager(request)
+    record = await manager.create_restyle_job(job_id, payload.captions)
     return manager.snapshot(record.id)
 
 

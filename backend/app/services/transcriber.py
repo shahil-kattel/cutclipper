@@ -15,6 +15,8 @@ from typing import Any
 from app.config import Settings
 from app.core.errors import JobCancelledError, ProcessingError
 from app.pipeline.types import Sentence, Transcript, Word
+from app.services.media import get_media_tools
+from app.services.process import run_process
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ ProgressCallback = Callable[[float, str], None]
 _SENTENCE_END_RE = re.compile(r"""[.!?…。！？]["'”’)\]]*$""")
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=4)
 def _load_model(
     model_size: str,
     device: str,
@@ -176,30 +178,12 @@ def _dedupe_words(words: list[Word], duration: float) -> list[Word]:
     return cleaned
 
 
-async def transcribe_audio(
-    audio_path: Path,
-    duration: float,
-    settings: Settings,
-    *,
-    cancel_event: Event,
-    on_progress: ProgressCallback | None = None,
-) -> Transcript:
-    """Transcribe an extracted WAV file, yielding to the event loop between segments."""
+_NEPALI_PROMPT = "यो नेपाली भाषामा बोलिएको कुराकानी हो।"
 
-    if on_progress:
-        on_progress(0.02, "Loading the speech model")
-    model = await asyncio.to_thread(
-        _load_model,
-        settings.whisper_model,
-        settings.whisper_device,
-        settings.whisper_compute_type,
-        settings.whisper_cpu_threads,
-    )
-    if cancel_event.is_set():
-        raise JobCancelledError()
 
+def _transcribe_kwargs(settings: Settings, language: str | None) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
-        "language": settings.whisper_language,
+        "language": language,
         "beam_size": settings.whisper_beam_size,
         "word_timestamps": True,
         "vad_filter": True,
@@ -207,6 +191,42 @@ async def transcribe_audio(
         "condition_on_previous_text": False,
         "temperature": 0.0,
     }
+    if language == "ne":
+        kwargs["initial_prompt"] = _NEPALI_PROMPT
+    return kwargs
+
+
+async def transcribe_audio(
+    audio_path: Path,
+    duration: float,
+    settings: Settings,
+    *,
+    cancel_event: Event,
+    on_progress: ProgressCallback | None = None,
+    language: str | None = None,
+    model_size: str | None = None,
+) -> Transcript:
+    """Transcribe an extracted WAV file, yielding to the event loop between segments."""
+
+    if on_progress:
+        on_progress(0.02, "Loading the speech model")
+    selected_language = (
+        language if language not in {None, "", "auto"} else settings.whisper_language
+    )
+    selected_model = model_size or (
+        settings.nepali_whisper_model if selected_language == "ne" else settings.whisper_model
+    )
+    model = await asyncio.to_thread(
+        _load_model,
+        selected_model,
+        settings.whisper_device,
+        settings.whisper_compute_type,
+        settings.whisper_cpu_threads,
+    )
+    if cancel_event.is_set():
+        raise JobCancelledError()
+
+    kwargs = _transcribe_kwargs(settings, selected_language)
     try:
         iterator, info = await asyncio.to_thread(model.transcribe, str(audio_path), **kwargs)
     except Exception as exc:
@@ -259,6 +279,195 @@ async def transcribe_audio(
         words=words,
         sentences=sentences,
         language=language,
+        language_probability=language_probability,
+        duration=duration,
+        warnings=warnings,
+    )
+
+
+def _window_bounds(window: Any) -> tuple[float, float]:
+    if isinstance(window, tuple | list) and len(window) >= 2:
+        return float(window[0]), float(window[1])
+    return float(window.start), float(window.end)
+
+
+async def transcribe_windows(
+    audio_path: Path,
+    windows: list[Any],
+    duration: float,
+    settings: Settings,
+    *,
+    cancel_event: Event,
+    on_progress: ProgressCallback | None = None,
+    language: str | None = None,
+    model_size: str | None = None,
+) -> Transcript:
+    """Transcribe only the requested audio windows and offset word timestamps.
+
+    Used for long sources where the user asked for a few short clips: Whisper
+    only sees the highlight candidates instead of the full recording.
+    """
+
+    bounds = [
+        (max(0.0, start), min(duration, end))
+        for start, end in (_window_bounds(window) for window in windows)
+        if end > start
+    ]
+    if not bounds:
+        return Transcript(
+            duration=duration,
+            warnings=["No speech windows were selected for transcription."],
+        )
+    if len(bounds) == 1 and bounds[0][0] <= 0.01 and bounds[0][1] >= duration - 0.1:
+        return await transcribe_audio(
+            audio_path,
+            duration,
+            settings,
+            cancel_event=cancel_event,
+            on_progress=on_progress,
+            language=language,
+            model_size=model_size,
+        )
+
+    selected_language = (
+        language if language not in {None, "", "auto"} else settings.whisper_language
+    )
+    selected_model = model_size or (
+        settings.nepali_whisper_model if selected_language == "ne" else settings.whisper_model
+    )
+    if on_progress:
+        on_progress(0.01, "Loading the speech model")
+    model = await asyncio.to_thread(
+        _load_model,
+        selected_model,
+        settings.whisper_device,
+        settings.whisper_compute_type,
+        settings.whisper_cpu_threads,
+    )
+    if cancel_event.is_set():
+        raise JobCancelledError()
+
+    tools = get_media_tools(settings)
+    work_dir = audio_path.parent / "transcribe-windows"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    total_seconds = sum(end - start for start, end in bounds)
+    completed_seconds = 0.0
+    words: list[Word] = []
+    detected_language: str | None = None
+    language_probability: float | None = None
+    warnings: list[str] = []
+
+    for index, (start, end) in enumerate(bounds):
+        if cancel_event.is_set():
+            raise JobCancelledError()
+        window_seconds = end - start
+        if window_seconds < 0.05:
+            continue
+        clip_path = work_dir / f"window_{index:03d}.wav"
+        command = [
+            tools.ffmpeg,
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            f"{start:.3f}",
+            "-t",
+            f"{window_seconds:.3f}",
+            "-i",
+            str(audio_path),
+            "-c",
+            "copy",
+            str(clip_path),
+        ]
+        try:
+            result = await run_process(
+                command,
+                cancel_event=cancel_event,
+                timeout_seconds=120,
+            )
+            if result.returncode != 0 or not clip_path.exists():
+                raise ProcessingError(
+                    "A highlight section of the audio could not be prepared for transcription.",
+                    code="audio_slice_failed",
+                    details={"stderr": result.stderr[-1000:]},
+                )
+            iterator, info = await asyncio.to_thread(
+                model.transcribe, str(clip_path), **_transcribe_kwargs(settings, selected_language)
+            )
+            segments: list[Any] = []
+            while True:
+                if cancel_event.is_set():
+                    raise JobCancelledError()
+                segment = await asyncio.to_thread(_next_segment, iterator)
+                if segment is None:
+                    break
+                segments.append(segment)
+                if on_progress and total_seconds > 0:
+                    window_fraction = min(1.0, float(getattr(segment, "end", 0.0)) / window_seconds)
+                    fraction = (
+                        completed_seconds + window_seconds * window_fraction
+                    ) / total_seconds
+                    on_progress(
+                        min(0.97, 0.04 + 0.92 * fraction),
+                        f"Transcribing section {index + 1} of {len(bounds)}",
+                    )
+            close = getattr(iterator, "close", None)
+            if close:
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(close)
+            if detected_language is None:
+                detected_language = getattr(info, "language", None)
+                language_probability = getattr(info, "language_probability", None)
+            for word in _build_words(segments, window_seconds):
+                words.append(
+                    Word(
+                        start=round(min(duration, word.start + start), 3),
+                        end=round(min(duration, word.end + start), 3),
+                        text=word.text,
+                        probability=word.probability,
+                    )
+                )
+        except (JobCancelledError, ProcessingError):
+            raise
+        except Exception as exc:
+            raise ProcessingError(
+                "One of the highlight sections could not be transcribed.",
+                code="transcription_failed",
+                retryable=True,
+                details={"error": str(exc), "section": index + 1},
+            ) from exc
+        finally:
+            with contextlib.suppress(OSError):
+                clip_path.unlink(missing_ok=True)
+        completed_seconds += window_seconds
+        if on_progress and total_seconds > 0:
+            on_progress(
+                min(0.97, 0.04 + 0.92 * (completed_seconds / total_seconds)),
+                f"Transcribed section {index + 1} of {len(bounds)}",
+            )
+
+    words.sort(key=lambda word: (word.start, word.end))
+    words = _dedupe_words(words, duration)
+    sentences = build_sentences(words)
+    if not words:
+        warnings.append("No speech was detected in the selected highlight windows.")
+    if on_progress:
+        on_progress(1.0, "Speech transcribed")
+    logger.info(
+        "window transcription complete",
+        extra={
+            "windows": len(bounds),
+            "words": len(words),
+            "language": detected_language,
+            "audio_seconds": round(total_seconds, 1),
+        },
+    )
+    return Transcript(
+        words=words,
+        sentences=sentences,
+        language=detected_language,
         language_probability=language_probability,
         duration=duration,
         warnings=warnings,

@@ -4,6 +4,7 @@ import { Code2, Heart, ShieldCheck, Sparkles } from 'lucide-react'
 import { BackgroundFX } from './components/BackgroundFX'
 import { Header, BrandMark } from './components/Header'
 import { LinkStep, type SourceMode } from './components/LinkStep'
+import { CaptionStep } from './components/CaptionStep'
 import { SettingsStep } from './components/SettingsStep'
 import { ProcessingStep } from './components/ProcessingStep'
 import { ResultsStep } from './components/ResultsStep'
@@ -16,10 +17,28 @@ import {
   errorMessage,
   isRetryable,
   previewVideo,
+  restyleJob,
+  transcribeCaptions,
   uploadVideo,
 } from './lib/api'
-import { DEFAULT_SETTINGS, formatDuration } from './lib/utils'
-import type { AppStep, ClipSettings, Job, PreviewResponse } from './types/api'
+import { DEFAULT_SETTINGS, formatDuration, pluralize } from './lib/utils'
+import { CAPTION_FONT_OPTIONS } from './lib/captionFonts'
+import type {
+  AppStep,
+  CaptionFont,
+  CaptionSegment,
+  CaptionSettings,
+  ClipSettings,
+  Job,
+  PreviewResponse,
+  TranscriptResponse,
+} from './types/api'
+
+const DEVANAGARI_FONTS = new Set<CaptionFont>(
+  CAPTION_FONT_OPTIONS.filter((font) => font.scripts.includes('devanagari')).map(
+    (font) => font.name,
+  ),
+)
 
 function AppContent() {
   const toast = useToast()
@@ -32,10 +51,20 @@ function AppContent() {
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewRetryable, setPreviewRetryable] = useState(false)
   const [settings, setSettings] = useState<ClipSettings>(structuredClone(DEFAULT_SETTINGS))
+  const [captionSettings, setCaptionSettings] = useState<CaptionSettings>(() =>
+    structuredClone(DEFAULT_SETTINGS.captions),
+  )
+  const [captionLanguage, setCaptionLanguage] = useState('auto')
+  const [captionQuality, setCaptionQuality] = useState('balanced')
+  const [captionTranscript, setCaptionTranscript] = useState<TranscriptResponse | null>(null)
+  const [captionSegments, setCaptionSegments] = useState<CaptionSegment[]>([])
+  const [captionLoading, setCaptionLoading] = useState(false)
+  const [captionError, setCaptionError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [generationError, setGenerationError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [createdJob, setCreatedJob] = useState<Job | null>(null)
+  const [restyleParent, setRestyleParent] = useState<Job | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [cancelRequested, setCancelRequested] = useState(false)
   const handledStatus = useRef<string | null>(null)
@@ -58,12 +87,14 @@ function AppContent() {
   useEffect(() => {
     document.title =
       step === 'results'
-        ? 'Your clips are ready · CutClipper'
+        ? 'Your video is ready · CutClipper'
         : step === 'processing'
           ? 'Rendering · CutClipper'
-          : step === 'settings'
-            ? 'Style your clips · CutClipper'
-            : 'CutClipper — Long video. Short clips. Zero effort.'
+          : step === 'caption'
+            ? 'Caption studio · CutClipper'
+            : step === 'settings'
+              ? 'Style your clips · CutClipper'
+              : 'CutClipper — Long video. Short clips. Zero effort.'
   }, [step])
 
   useEffect(() => {
@@ -80,7 +111,11 @@ function AppContent() {
       // Navigation is driven by the server's terminal event, once per job.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setStep('results')
-      toast.success(`Your ${job.clips.length} clips are ready to download.`)
+      toast.success(
+        job.mode === 'captions'
+          ? 'Your captioned video is ready to download.'
+          : `Your ${job.clips.length} ${pluralize(job.clips.length, 'clip')} ${job.clips.length === 1 ? 'is' : 'are'} ready to download.`,
+      )
     } else if (job.status === 'failed') {
       handledStatus.current = `${job.id}:${job.status}`
       toast.error(job.error_message || 'The render failed.')
@@ -122,6 +157,33 @@ function AppContent() {
     }
   }, [toast, url])
 
+  const loadCaptionTranscript = useCallback(
+    async (uploadId: string, language: string, force = false, quality = captionQuality) => {
+      setCaptionLoading(true)
+      setCaptionError(null)
+      try {
+        const response = await transcribeCaptions(uploadId, language, force, quality)
+        setCaptionTranscript(response)
+        setCaptionSegments(response.segments)
+        if (language === 'ne') {
+          setCaptionSettings((current) =>
+            DEVANAGARI_FONTS.has(current.font) ? current : { ...current, font: 'Mukta' },
+          )
+        }
+        if (response.segments.length) {
+          toast.success(`Speech transcribed · ${response.segments.length} editable lines`)
+        } else {
+          toast.info('No speech detected. You can add caption lines manually.')
+        }
+      } catch (error) {
+        setCaptionError(errorMessage(error))
+      } finally {
+        setCaptionLoading(false)
+      }
+    },
+    [captionQuality, toast],
+  )
+
   const uploadLocalFile = useCallback(
     async (file: File) => {
       setPreviewLoading(true)
@@ -142,7 +204,16 @@ function AppContent() {
             enabled: response.has_audio === false ? false : current.captions.enabled,
           },
         }))
-        toast.success(`File ready · ${formatDuration(response.duration)} found`)
+        if (sourceMode === 'caption' && response.upload_id) {
+          setCaptionTranscript(null)
+          setCaptionSegments([])
+          setCaptionError(null)
+          setStep('caption')
+          toast.success(`File ready · transcribing ${formatDuration(response.duration)} of audio`)
+          void loadCaptionTranscript(response.upload_id, captionLanguage)
+        } else {
+          toast.success(`File ready · ${formatDuration(response.duration)} found`)
+        }
       } catch (error) {
         setPreviewError(errorMessage(error))
         setPreviewRetryable(isRetryable(error))
@@ -151,7 +222,7 @@ function AppContent() {
         setUpload(null)
       }
     },
-    [toast],
+    [captionLanguage, loadCaptionTranscript, sourceMode, toast],
   )
 
   const clearPreviewError = useCallback(() => {
@@ -176,6 +247,9 @@ function AppContent() {
     setCancelRequested(false)
     setPreview(null)
     setGenerationError(null)
+    setCaptionTranscript(null)
+    setCaptionSegments([])
+    setCaptionError(null)
     setStep('link')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
@@ -221,9 +295,100 @@ function AppContent() {
     }
   }, [preview, settings, toast])
 
+  const startCaptionRender = useCallback(async () => {
+    if (!preview?.upload_id || generationRef.current) return
+    if (!captionSegments.length) {
+      toast.info('Add or transcribe at least one caption line first.')
+      return
+    }
+    generationRef.current = true
+    const token = ++generationToken.current
+    setGenerating(true)
+    setCaptionError(null)
+    setCancelling(false)
+    setCancelRequested(false)
+    handledStatus.current = null
+    const renderSettings: ClipSettings = {
+      ...structuredClone(DEFAULT_SETTINGS),
+      captions: { ...captionSettings, enabled: true },
+    }
+    setSettings(renderSettings)
+    try {
+      const newJob = await createJob({ uploadId: preview.upload_id }, renderSettings, {
+        mode: 'captions',
+        segments: captionSegments,
+        language: captionLanguage === 'auto' ? null : captionLanguage,
+      })
+      if (generationToken.current !== token) {
+        void cancelJob(newJob.id).catch(() => undefined)
+        return
+      }
+      setJobId(newJob.id)
+      setCreatedJob(newJob)
+      setStep('processing')
+    } catch (error) {
+      if (generationToken.current !== token) return
+      const message = errorMessage(error)
+      setCaptionError(message)
+      toast.error(message)
+    } finally {
+      generationRef.current = false
+      setGenerating(false)
+    }
+  }, [captionLanguage, captionSegments, captionSettings, preview, toast])
+
   const retryRender = useCallback(async () => {
+    if (createdJob?.is_restyle && restyleParent) {
+      const token = ++generationToken.current
+      setCancelRequested(false)
+      handledStatus.current = null
+      try {
+        const updated = await restyleJob(restyleParent.id, createdJob.settings.captions)
+        if (generationToken.current !== token) return
+        setJobId(updated.id)
+        setCreatedJob(updated)
+      } catch (error) {
+        toast.error(errorMessage(error))
+      }
+      return
+    }
+    if (createdJob?.mode === 'captions') {
+      await startCaptionRender()
+      return
+    }
     await startRender()
-  }, [startRender])
+  }, [createdJob, restyleParent, startCaptionRender, startRender, toast])
+
+  const restyleCurrentJob = useCallback(
+    async (captions: CaptionSettings) => {
+      if (!job) throw new Error('This export is no longer available.')
+      const token = ++generationToken.current
+      setGenerationError(null)
+      setCancelRequested(false)
+      handledStatus.current = null
+      const updated = await restyleJob(job.id, captions)
+      if (generationToken.current !== token) {
+        void cancelJob(updated.id).catch(() => undefined)
+        return
+      }
+      setSettings(updated.settings)
+      setCaptionSettings(updated.settings.captions)
+      setRestyleParent(job)
+      setJobId(updated.id)
+      setCreatedJob(updated)
+      setStep('processing')
+    },
+    [job],
+  )
+
+  const backToPreviousExport = useCallback(() => {
+    if (!restyleParent) return
+    generationToken.current += 1
+    setCancelRequested(false)
+    setJobId(restyleParent.id)
+    setCreatedJob(restyleParent)
+    setStep('results')
+  }, [restyleParent])
 
   const requestCancel = useCallback(async () => {
     if (!jobId || cancelling || cancelRequested) return
@@ -253,19 +418,28 @@ function AppContent() {
     setGenerationError(null)
     setJobId(null)
     setCreatedJob(null)
+    setRestyleParent(null)
     setSettings(structuredClone(DEFAULT_SETTINGS))
+    setCaptionSettings(structuredClone(DEFAULT_SETTINGS.captions))
+    setCaptionLanguage('auto')
+    setCaptionQuality('balanced')
+    setCaptionTranscript(null)
+    setCaptionSegments([])
+    setCaptionError(null)
     setCancelling(false)
     handledStatus.current = null
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
   const editSettings = useCallback(() => {
+    const captionJob = createdJob?.mode === 'captions'
+    generationToken.current += 1
     setJobId(null)
     setCreatedJob(null)
     setCancelRequested(false)
     setGenerationError(null)
-    setStep('settings')
-  }, [])
+    setStep(captionJob ? 'caption' : 'settings')
+  }, [createdJob])
 
   return (
     <div className="relative min-h-dvh">
@@ -274,11 +448,16 @@ function AppContent() {
       </a>
       <BackgroundFX />
       <div className="relative z-10 flex min-h-dvh flex-col">
-        <Header step={step} />
+        <Header
+          step={step}
+          captionFlow={
+            step === 'caption' || createdJob?.mode === 'captions' || job?.mode === 'captions'
+          }
+        />
         <main
           id="main"
           className={`mx-auto w-full flex-1 px-4 sm:px-6 lg:px-8 ${
-            step === 'link' ? 'pb-20 pt-12 sm:pt-20' : 'pb-20 pt-8 sm:pt-12'
+            step === 'link' ? 'pb-20 pt-9 sm:pt-14' : 'pb-16 pt-7 sm:pt-10'
           }`}
         >
           <AnimatePresence mode="wait" initial={false}>
@@ -311,6 +490,40 @@ function AppContent() {
                 />
               ) : null}
 
+              {step === 'caption' && preview?.upload_id ? (
+                <CaptionStep
+                  preview={preview}
+                  transcript={captionTranscript}
+                  segments={captionSegments}
+                  loading={captionLoading}
+                  error={captionError}
+                  language={captionLanguage}
+                  quality={captionQuality}
+                  onQualityChange={setCaptionQuality}
+                  onLanguageChange={(value) => {
+                    setCaptionLanguage(value)
+                    if (value === 'ne') {
+                      setCaptionSettings((current) =>
+                        DEVANAGARI_FONTS.has(current.font)
+                          ? current
+                          : { ...current, font: 'Mukta' },
+                      )
+                    }
+                  }}
+                  onTranscribe={(force) => {
+                    if (preview.upload_id) {
+                      void loadCaptionTranscript(preview.upload_id, captionLanguage, force)
+                    }
+                  }}
+                  onSegmentsChange={setCaptionSegments}
+                  captions={captionSettings}
+                  onCaptionsChange={setCaptionSettings}
+                  onBack={backToLink}
+                  onRender={startCaptionRender}
+                  generating={generating}
+                />
+              ) : null}
+
               {step === 'settings' && preview ? (
                 <SettingsStep
                   preview={preview}
@@ -330,19 +543,27 @@ function AppContent() {
                   cancelling={cancelling}
                   onCancel={requestCancel}
                   onBack={() => {
+                    const captionJob =
+                      createdJob?.mode === 'captions' || displayJob?.mode === 'captions'
                     setJobId(null)
                     setCreatedJob(null)
                     setCancelRequested(false)
-                    setStep('settings')
+                    setStep(captionJob ? 'caption' : 'settings')
                   }}
                   onRetry={retryRender}
                   onStartOver={startOver}
+                  onBackToPrevious={restyleParent ? backToPreviousExport : undefined}
                   generating={generating}
                 />
               ) : null}
 
               {step === 'results' && job ? (
-                <ResultsStep job={job} onNewProject={startOver} onEditSettings={editSettings} />
+                <ResultsStep
+                  job={job}
+                  onNewProject={startOver}
+                  onEditSettings={editSettings}
+                  onRestyle={restyleCurrentJob}
+                />
               ) : null}
             </motion.div>
           </AnimatePresence>
@@ -356,37 +577,42 @@ function AppContent() {
 
 function SiteFooter() {
   return (
-    <footer className="relative z-10 border-t border-white/[0.055] px-4 pb-8 pt-6 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-4 text-[11px] text-slate-600 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-2.5">
-          <BrandMark className="h-7 w-7 rounded-lg" />
-          <span className="font-display font-medium tracking-[-0.01em] text-slate-400">
-            CutClipper
-          </span>
-          <span className="hidden h-3 w-px bg-white/10 sm:block" />
-          <span className="hidden sm:inline">Local media pipeline · open source</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          <span className="inline-flex items-center gap-1.5">
-            <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-            Temp files auto-delete
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Sparkles className="h-3 w-3" aria-hidden="true" />
-            No accounts. No watermarks.
-          </span>
-          <a
-            href="https://github.com/shahil-kattel/cutclipper"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 transition hover:text-slate-300"
-          >
-            <Code2 className="h-3 w-3" aria-hidden="true" />
-            GitHub
-          </a>
-          <span className="inline-flex items-center gap-1">
-            Built with <Heart className="h-2.5 w-2.5 text-fuchsia-400/70" aria-hidden="true" />
-          </span>
+    <footer className="relative z-10 px-4 pb-8 pt-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl border-t-[1.5px] border-dashed border-ink/30 pt-5">
+        <div className="flex flex-col items-start justify-between gap-4 text-[10.5px] text-ink-soft sm:flex-row sm:items-center">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <BrandMark className="h-7 w-7 rounded-lg shadow-[1px_2px_0_#211d19]" />
+            <span className="font-display text-[14px] font-semibold tracking-[-0.01em] text-ink">
+              CutClipper
+            </span>
+            <span className="hidden h-3 w-px bg-ink/20 sm:block" />
+            <span className="font-hand text-[15px] text-ink-soft">
+              long videos, short attention spans
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <span className="inline-flex items-center gap-1.5">
+              <ShieldCheck className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
+              Temp files auto-delete
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
+              No accounts. No watermarks.
+            </span>
+            <a
+              href="https://github.com/shahil-kattel/cutclipper"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-paper-soft px-2.5 py-1 font-semibold text-ink shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-mustard-soft"
+            >
+              <Code2 className="h-3 w-3" aria-hidden="true" />
+              GitHub
+            </a>
+            <span className="inline-flex items-center gap-1 font-hand text-[15px]">
+              made with <Heart className="h-3 w-3 fill-tomato text-tomato" aria-hidden="true" /> on
+              paper
+            </span>
+          </div>
         </div>
       </div>
     </footer>

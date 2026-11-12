@@ -1,10 +1,32 @@
 export type SelectionMode = 'auto' | 'even'
 export type AspectRatio = '9:16' | '1:1' | '4:5'
 export type ReframeMode = 'smart' | 'center' | 'blur'
-export type CaptionStyle = 'karaoke' | 'pop' | 'typewriter' | 'minimal'
+export type CaptionStyle =
+  | 'karaoke'
+  | 'pop'
+  | 'bounce'
+  | 'highlight'
+  | 'neon'
+  | 'slide'
+  | 'typewriter'
+  | 'minimal'
+  | 'fade_up'
+  | 'zoom_in'
+  | 'stamp'
+  | 'tilt'
+  | 'spotlight'
+  | 'underline'
+  | 'pulse'
+  | 'wiggle'
+  | 'rainbow'
+  | 'box'
+  | 'soft_blur'
 export type CaptionPosition = 'top' | 'middle' | 'bottom'
+export type CaptionFontStyle = 'regular' | 'bold' | 'italic' | 'bold_italic'
+export type CaptionTextCase = 'none' | 'uppercase' | 'lowercase'
 export type TransitionStyle = 'fade' | 'zoom' | 'slide' | 'whip_pan'
-export type CaptionFont = 'Inter' | 'Arial' | 'Georgia' | 'DejaVu Sans'
+export type CaptionFont = string
+export type JobMode = 'clips' | 'captions'
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type JobStage =
@@ -23,14 +45,19 @@ export type JobStage =
 
 export interface CaptionSettings {
   enabled: boolean
-  style: CaptionStyle
+  word_style: CaptionStyle | null
+  line_style: CaptionStyle | null
   font: CaptionFont
+  font_style: CaptionFontStyle
   font_size: number
   color: string
   highlight_color: string
   position: CaptionPosition
   outline_width: number
   shadow: number
+  letter_spacing: number
+  word_spacing: number
+  text_case: CaptionTextCase
 }
 
 export interface TransitionSettings {
@@ -74,6 +101,35 @@ export interface JobSource {
   uploadId?: string
 }
 
+export interface JobOptions {
+  mode?: JobMode
+  segments?: CaptionSegment[]
+  language?: string | null
+}
+
+export interface CaptionSegment {
+  start: number
+  end: number
+  text: string
+}
+
+export interface TranscriptWord {
+  start: number
+  end: number
+  text: string
+}
+
+export interface TranscriptResponse {
+  upload_id: string
+  duration: number
+  language: string | null
+  language_probability: number | null
+  segments: CaptionSegment[]
+  words: TranscriptWord[]
+  warnings: string[]
+  cached: boolean
+}
+
 export interface Clip {
   id: string
   index: number
@@ -101,6 +157,7 @@ export interface Job {
   updated_at: string
   video: VideoMetadata | null
   settings: ClipSettings
+  mode: JobMode
   clips: Clip[]
   warnings: string[]
   error_code: string | null
@@ -108,6 +165,8 @@ export interface Job {
   retryable: boolean
   can_cancel: boolean
   download_all_url: string | null
+  is_restyle: boolean
+  restyled_from: string | null
 }
 
 export interface ApiErrorBody {
@@ -119,5 +178,5 @@ export interface ApiErrorBody {
   }
 }
 
-export type AppStep = 'link' | 'settings' | 'processing' | 'results'
+export type AppStep = 'link' | 'caption' | 'settings' | 'processing' | 'results'
 export type ToastTone = 'success' | 'error' | 'info'

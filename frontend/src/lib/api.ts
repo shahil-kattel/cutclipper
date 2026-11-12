@@ -1,4 +1,13 @@
-import type { ApiErrorBody, ClipSettings, Job, JobSource, PreviewResponse } from '../types/api'
+import type {
+  ApiErrorBody,
+  CaptionSettings,
+  ClipSettings,
+  Job,
+  JobOptions,
+  JobSource,
+  PreviewResponse,
+  TranscriptResponse,
+} from '../types/api'
 
 const configuredBase = (import.meta.env.VITE_API_BASE as string | undefined)?.trim()
 export const API_BASE = (configuredBase || '/api').replace(/\/+$/, '')
@@ -107,7 +116,11 @@ export async function previewVideo(url: string): Promise<PreviewResponse> {
   )
 }
 
-export async function createJob(source: JobSource, settings: ClipSettings): Promise<Job> {
+export async function createJob(
+  source: JobSource,
+  settings: ClipSettings,
+  options: JobOptions = {},
+): Promise<Job> {
   return request<Job>(
     '/jobs',
     {
@@ -116,10 +129,49 @@ export async function createJob(source: JobSource, settings: ClipSettings): Prom
         url: source.url || undefined,
         upload_id: source.uploadId || undefined,
         settings,
+        mode: options.mode || 'clips',
+        language: options.language || undefined,
+        segments: options.segments,
       }),
     },
     45_000,
   )
+}
+
+export async function restyleJob(jobId: string, captions: CaptionSettings): Promise<Job> {
+  return request<Job>(
+    `/jobs/${encodeURIComponent(jobId)}/restyle`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ captions }),
+    },
+    120_000,
+  )
+}
+
+export async function transcribeCaptions(
+  uploadId: string,
+  language: string | null,
+  force = false,
+  quality?: string | null,
+): Promise<TranscriptResponse> {
+  return request<TranscriptResponse>(
+    '/captions/transcribe',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        upload_id: uploadId,
+        language: language && language !== 'auto' ? language : undefined,
+        quality: quality || undefined,
+        force,
+      }),
+    },
+    60 * 60 * 1000,
+  )
+}
+
+export function uploadVideoUrl(uploadId: string): string {
+  return assetUrl(`/api/uploads/${encodeURIComponent(uploadId)}/video`)
 }
 
 export function uploadVideo(

@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     max_concurrent_jobs: int = Field(default=1, ge=1, le=4)
 
     whisper_model: str = "base"
+    # Nepali benefits from a larger model; medium is the accuracy-first default.
+    nepali_whisper_model: str = "medium"
     whisper_device: str = "auto"
     whisper_compute_type: str = "auto"
     whisper_language: str | None = None

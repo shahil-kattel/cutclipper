@@ -17,9 +17,6 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import type {
   AspectRatio,
-  CaptionFont,
-  CaptionPosition,
-  CaptionStyle,
   ClipSettings,
   PreviewResponse,
   ReframeMode,
@@ -33,7 +30,9 @@ import {
   formatDurationLong,
   sourceName,
 } from '../lib/utils'
-import { Button, FieldLabel, RangeField, SectionCard, Toggle } from './ui'
+import { Button, RangeField, SectionCard, Toggle } from './ui'
+import { CaptionPreview } from './CaptionPreview'
+import { CaptionStyleControls } from './CaptionControls'
 
 interface SettingsStepProps {
   preview: PreviewResponse
@@ -44,19 +43,6 @@ interface SettingsStepProps {
   generating: boolean
   generationError: string | null
 }
-
-const CAPTION_STYLES: Array<{
-  value: CaptionStyle
-  label: string
-  copy: string
-}> = [
-  { value: 'karaoke', label: 'Karaoke', copy: 'Each word lights up as it lands.' },
-  { value: 'pop', label: 'Pop', copy: 'Words bounce in with a springy scale.' },
-  { value: 'typewriter', label: 'Typewriter', copy: 'Letters reveal in spoken rhythm.' },
-  { value: 'minimal', label: 'Minimal', copy: 'Clean static lines. Nothing extra.' },
-]
-
-const CAPTION_FONTS: CaptionFont[] = ['Inter', 'Arial', 'Georgia', 'DejaVu Sans']
 
 const REFRAME_MODES: Array<{
   value: ReframeMode
@@ -154,26 +140,32 @@ export function SettingsStep({
           <button
             type="button"
             onClick={onBack}
-            className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-500 transition hover:text-slate-200"
+            className="mb-4 inline-flex items-center gap-1.5 text-[11px] font-semibold text-ink-soft transition hover:text-tomato"
           >
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
             Back to link
           </button>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300/70">
+          <p className="flex items-center gap-2 text-[9.5px] font-bold uppercase tracking-[0.18em] text-tomato">
+            <span className="h-px w-5 bg-tomato" aria-hidden="true" />
             Clip design · {sourceName(preview.source)}
           </p>
-          <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.045em] text-white sm:text-[2.5rem]">
-            Set the cut.
-          </h1>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
+          <div className="mt-2 flex flex-wrap items-end gap-x-4">
+            <h1 className="font-display text-4xl font-semibold tracking-[-0.05em] text-ink sm:text-[2.9rem]">
+              Set the cut.
+            </h1>
+            <span className="mb-1.5 hidden -rotate-2 font-hand text-[18px] text-ink-soft sm:inline">
+              make it feel like you
+            </span>
+          </div>
+          <p className="mt-2 max-w-xl text-[12.5px] leading-6 text-ink-soft">
             Choose how many moments to pull, how they fit the frame, and how they move.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-          <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+        <div className="flex max-w-full items-center gap-2 rounded-lg border-[1.5px] border-ink/20 bg-paper-soft/70 px-3 py-2 text-[10px] font-medium text-ink-soft">
+          <Clock3 className="h-3.5 w-3.5 shrink-0 text-tomato" aria-hidden="true" />
           <span className="truncate">{preview.title}</span>
-          <span className="h-3 w-px bg-white/10" />
-          <span className="tabular-nums">{formatDuration(duration)}</span>
+          <span className="h-3 border-l border-dashed border-ink/30" />
+          <span className="shrink-0 tabular-nums">{formatDuration(duration)}</span>
         </div>
       </motion.div>
 
@@ -189,37 +181,38 @@ export function SettingsStep({
             eyebrow="01 · Selection"
             title="Find the good parts"
             description="Auto-highlights score speech, energy, and scene changes. Even split keeps clips in timeline order."
+            tone="tomato"
           >
             <div className="space-y-6">
-              <div className="rounded-xl border border-white/[0.065] bg-black/10 p-4">
+              <div className="paper-inset p-4">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-[13px] font-medium text-slate-300">Number of clips</p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="text-[12.5px] font-semibold text-ink">Number of clips</p>
+                    <p className="mt-1 text-[11px] text-ink-soft">
                       Between 1 and 20. Every clip is delivered.
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5">
                     <button
                       type="button"
                       aria-label="Remove one clip"
                       onClick={() => update({ clip_count: Math.max(1, settings.clip_count - 1) })}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.035] text-slate-300 transition hover:border-white/20 hover:bg-white/[0.07] disabled:opacity-30"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border-[1.5px] border-ink bg-paper-soft text-ink shadow-[2px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-mustard-soft active:translate-y-px active:shadow-none disabled:opacity-30"
                       disabled={settings.clip_count <= 1}
                     >
-                      <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+                      <Minus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
                     </button>
-                    <span className="w-12 text-center font-display text-3xl font-semibold tabular-nums tracking-[-0.04em] text-white">
+                    <span className="flex h-12 w-14 items-center justify-center rounded-xl border-[1.5px] border-ink bg-mustard font-display text-[1.7rem] font-semibold tabular-nums tracking-[-0.04em] text-ink shadow-[2px_2px_0_#211d19]">
                       {String(settings.clip_count).padStart(2, '0')}
                     </span>
                     <button
                       type="button"
                       aria-label="Add one clip"
                       onClick={() => update({ clip_count: Math.min(20, settings.clip_count + 1) })}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.035] text-slate-300 transition hover:border-white/20 hover:bg-white/[0.07] disabled:opacity-30"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border-[1.5px] border-ink bg-paper-soft text-ink shadow-[2px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-mustard-soft active:translate-y-px active:shadow-none disabled:opacity-30"
                       disabled={settings.clip_count >= 20}
                     >
-                      <span className="text-base leading-none" aria-hidden="true">
+                      <span className="text-lg font-semibold leading-none" aria-hidden="true">
                         +
                       </span>
                     </button>
@@ -244,13 +237,13 @@ export function SettingsStep({
                       } as CSSProperties
                     }
                   />
-                  <div className="flex items-center justify-between text-[9px] font-medium tabular-nums text-slate-600">
+                  <div className="flex items-center justify-between text-[9px] font-bold tabular-nums text-ink-faint">
                     <span>01</span>
                     <span>20</span>
                   </div>
                 </div>
                 {tooShort ? (
-                  <p className="mt-2 text-[11px] leading-5 text-amber-200/80">
+                  <p className="mt-2 text-[11px] font-medium leading-5 text-tomato">
                     Only ~{maxPossibleClips} clips fit at this minimum length.
                   </p>
                 ) : null}
@@ -313,10 +306,11 @@ export function SettingsStep({
             eyebrow="02 · Frame"
             title="Own the frame"
             description="See every clip in full resolution. Smart framing eases around the main face instead of jumping."
+            tone="teal"
           >
             <div className="space-y-6">
               <div>
-                <p className="mb-3 text-[13px] font-medium text-slate-300">Output shape</p>
+                <p className="mb-3 text-[13px] font-medium text-ink-soft">Output shape</p>
                 <div
                   role="group"
                   aria-label="Output aspect ratio"
@@ -334,33 +328,31 @@ export function SettingsStep({
                         className={cn(
                           'group relative flex flex-col items-center justify-center gap-2 rounded-xl border px-2 py-4 transition duration-200',
                           selected
-                            ? 'border-cyan-300/35 bg-cyan-300/[0.065] shadow-[inset_0_0_30px_-15px_rgba(44,232,255,0.35)]'
-                            : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.035]',
+                            ? 'border-[1.5px] border-ink bg-mustard-soft shadow-[2px_3px_0_#211d19]'
+                            : 'border-[1.5px] border-ink/25 bg-paper-soft hover:-translate-y-0.5 hover:border-ink hover:bg-mustard-soft/40',
                         )}
                       >
                         <span
                           className={cn(
                             'rounded-[3px] border transition',
                             option.shapeClass,
-                            selected
-                              ? 'border-cyan-200/70 bg-cyan-300/10'
-                              : 'border-slate-600 bg-white/[0.02]',
+                            selected ? 'border-ink bg-mustard' : 'border-ink/40 bg-paper-soft',
                           )}
                           aria-hidden="true"
                         />
                         <span
                           className={cn(
                             'text-[12px] font-medium',
-                            selected ? 'text-white' : 'text-slate-400',
+                            selected ? 'text-ink' : 'text-ink-soft',
                           )}
                         >
                           {ASPECT_LABELS[option.value]}
                         </span>
-                        <span className="text-[9px] font-medium tabular-nums tracking-[0.15em] text-slate-600">
+                        <span className="text-[9px] font-medium tabular-nums tracking-[0.15em] text-ink-faint">
                           {option.ratio}
                         </span>
                         {selected ? (
-                          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(44,232,255,0.8)]" />
+                          <span className="absolute right-2 top-2 h-2 w-2 rounded-full border border-ink bg-tomato" />
                         ) : null}
                       </button>
                     )
@@ -369,7 +361,7 @@ export function SettingsStep({
               </div>
 
               <div>
-                <p className="mb-3 text-[13px] font-medium text-slate-300">Reframing</p>
+                <p className="mb-3 text-[13px] font-medium text-ink-soft">Reframing</p>
                 <div
                   role="group"
                   aria-label="Reframing method"
@@ -387,31 +379,28 @@ export function SettingsStep({
                         className={cn(
                           'relative rounded-xl border p-3.5 text-left transition duration-200',
                           selected
-                            ? 'border-violet-300/35 bg-violet-300/[0.065]'
-                            : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.035]',
+                            ? 'border-[1.5px] border-ink bg-teal-soft shadow-[2px_3px_0_#211d19]'
+                            : 'border-[1.5px] border-ink/25 bg-paper-soft hover:-translate-y-0.5 hover:border-ink hover:bg-mustard-soft/40',
                         )}
                       >
                         <div className="flex items-center justify-between">
                           <Icon
-                            className={cn(
-                              'h-4 w-4',
-                              selected ? 'text-violet-200' : 'text-slate-500',
-                            )}
+                            className={cn('h-4 w-4', selected ? 'text-teal' : 'text-ink-soft')}
                             aria-hidden="true"
                           />
                           {selected ? (
-                            <Check className="h-3.5 w-3.5 text-violet-200" aria-hidden="true" />
+                            <Check className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
                           ) : null}
                         </div>
                         <p
                           className={cn(
                             'mt-2.5 text-[12.5px] font-semibold',
-                            selected ? 'text-white' : 'text-slate-300',
+                            selected ? 'text-ink' : 'text-ink-soft',
                           )}
                         >
                           {label}
                         </p>
-                        <p className="mt-1 text-[11px] leading-4 text-slate-500">{copy}</p>
+                        <p className="mt-1 text-[11px] leading-4 text-ink-soft">{copy}</p>
                       </button>
                     )
                   })}
@@ -425,6 +414,7 @@ export function SettingsStep({
             eyebrow="03 · Type"
             title="Words that land"
             description="Burned-in captions use word-level timestamps and phone-safe margins."
+            tone="periwinkle"
             action={
               <Toggle
                 checked={settings.captions.enabled && captionsAvailable}
@@ -435,156 +425,13 @@ export function SettingsStep({
             }
           >
             {!captionsAvailable ? (
-              <p className="rounded-lg border border-amber-300/15 bg-amber-300/[0.05] px-3.5 py-3 text-xs leading-relaxed text-amber-100/80">
+              <p className="rounded-lg border-[1.5px] border-ink/30 bg-mustard-soft px-3.5 py-3 text-xs font-medium leading-relaxed text-ink">
                 This video has no audio track, so animated captions are unavailable.
               </p>
             ) : settings.captions.enabled ? (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="overflow-hidden"
-              >
-                <div className="space-y-6">
-                  <div>
-                    <p className="mb-3 text-[13px] font-medium text-slate-300">Caption motion</p>
-                    <div role="group" aria-label="Caption style" className="grid grid-cols-2 gap-2">
-                      {CAPTION_STYLES.map((style) => {
-                        const selected = settings.captions.style === style.value
-                        return (
-                          <button
-                            key={style.value}
-                            type="button"
-                            aria-pressed={selected}
-
-                            onClick={() => updateCaptions({ style: style.value })}
-                            className={cn(
-                              'relative rounded-xl border px-3.5 py-3 text-left transition duration-200',
-                              selected
-                                ? 'border-cyan-300/30 bg-cyan-300/[0.055]'
-                                : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15',
-                            )}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span
-                                className={cn(
-                                  'font-display text-[15px] font-semibold tracking-[-0.02em]',
-                                  selected ? 'text-cyan-100' : 'text-slate-300',
-                                )}
-                              >
-                                {style.label}
-                              </span>
-                              <CaptionGlyph style={style.value} active={selected} />
-                            </div>
-                            <p className="mt-1 text-[10.5px] leading-4 text-slate-500">
-                              {style.copy}
-                            </p>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <FieldLabel htmlFor="caption-font">Typeface</FieldLabel>
-                      <select
-                        id="caption-font"
-                        value={settings.captions.font}
-                        onChange={(event) =>
-                          updateCaptions({ font: event.target.value as CaptionFont })
-                        }
-                        className="h-10 w-full rounded-lg border border-white/10 bg-[#090e1e] px-3 text-[13px] text-slate-100 outline-none transition focus:border-cyan-300/40"
-                      >
-                        {CAPTION_FONTS.map((font) => (
-                          <option key={font} value={font}>
-                            {font}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <RangeField
-                      label="Caption size"
-                      value={settings.captions.font_size}
-                      min={40}
-                      max={110}
-                      display={`${settings.captions.font_size}px`}
-                      onValueChange={(value) => updateCaptions({ font_size: value })}
-                    />
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <ColorRow
-                      label="Text"
-                      value={settings.captions.color}
-                      onChange={(value) => updateCaptions({ color: value })}
-                    />
-                    <ColorRow
-                      label="Highlight"
-                      value={settings.captions.highlight_color}
-                      onChange={(value) => updateCaptions({ highlight_color: value })}
-                    />
-                  </div>
-
-                  <div>
-                    <p className="mb-2.5 text-[13px] font-medium text-slate-300">Position</p>
-                    <div
-                      role="group"
-                      aria-label="Caption position"
-                      className="grid grid-cols-3 gap-2"
-                    >
-                      {(['top', 'middle', 'bottom'] as CaptionPosition[]).map((position) => {
-                        const selected = settings.captions.position === position
-                        return (
-                          <button
-                            key={position}
-                            type="button"
-                            aria-pressed={selected}
-
-                            onClick={() => updateCaptions({ position })}
-                            className={cn(
-                              'h-9 rounded-lg border text-[12px] font-medium capitalize transition',
-                              selected
-                                ? 'border-white/20 bg-white/[0.085] text-white'
-                                : 'border-white/[0.07] bg-white/[0.02] text-slate-500 hover:text-slate-300',
-                            )}
-                          >
-                            {position}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <RangeField
-                      label="Outline"
-                      value={settings.captions.outline_width}
-                      min={0}
-                      max={8}
-                      step={0.5}
-                      display={
-                        settings.captions.outline_width === 0
-                          ? 'Off'
-                          : settings.captions.outline_width.toFixed(1)
-                      }
-                      onValueChange={(value) => updateCaptions({ outline_width: value })}
-                    />
-                    <RangeField
-                      label="Shadow"
-                      value={settings.captions.shadow}
-                      min={0}
-                      max={8}
-                      step={0.5}
-                      display={
-                        settings.captions.shadow === 0 ? 'Off' : settings.captions.shadow.toFixed(1)
-                      }
-                      onValueChange={(value) => updateCaptions({ shadow: value })}
-                    />
-                  </div>
-                </div>
-              </motion.div>
+              <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />
             ) : (
-              <p className="text-xs leading-relaxed text-slate-500">
+              <p className="text-xs leading-relaxed text-ink-soft">
                 Captions are off. The export will keep the original audio and framing only.
               </p>
             )}
@@ -595,6 +442,7 @@ export function SettingsStep({
             eyebrow="04 · Motion"
             title="Add the polish"
             description="Soft transitions ease viewers between the clip edges and internal cuts."
+            tone="mustard"
             action={
               <Toggle
                 checked={settings.transitions.enabled}
@@ -627,14 +475,14 @@ export function SettingsStep({
                           className={cn(
                             'group rounded-xl border px-2 py-3 transition duration-200',
                             selected
-                              ? 'border-fuchsia-300/30 bg-fuchsia-300/[0.06]'
-                              : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15',
+                              ? 'border-[1.5px] border-ink bg-blush-soft shadow-[2px_2px_0_#211d19]'
+                              : 'border-[1.5px] border-ink/25 bg-paper-soft hover:-translate-y-0.5 hover:border-ink hover:bg-mustard-soft/40',
                           )}
                         >
                           <span
                             className={cn(
                               'block text-2xl leading-none transition group-hover:scale-110',
-                              selected ? 'text-fuchsia-200' : 'text-slate-500',
+                              selected ? 'text-ink' : 'text-ink-soft',
                             )}
                             aria-hidden="true"
                           >
@@ -643,7 +491,7 @@ export function SettingsStep({
                           <span
                             className={cn(
                               'mt-2 block text-[11px] font-medium',
-                              selected ? 'text-white' : 'text-slate-400',
+                              selected ? 'text-ink' : 'text-ink-soft',
                             )}
                           >
                             {transition.label}
@@ -665,7 +513,7 @@ export function SettingsStep({
                 </div>
               </motion.div>
             ) : (
-              <p className="text-xs leading-relaxed text-slate-500">
+              <p className="text-xs leading-relaxed text-ink-soft">
                 Hard cuts throughout. Turn transitions on for eased edges and motion.
               </p>
             )}
@@ -674,7 +522,7 @@ export function SettingsStep({
           {issue ? (
             <div
               role="alert"
-              className="rounded-xl border border-amber-300/20 bg-amber-300/[0.055] px-4 py-3 text-[12.5px] leading-relaxed text-amber-100/85"
+              className="rounded-xl border-[1.5px] border-ink bg-mustard-soft px-4 py-3 text-[12.5px] font-medium leading-relaxed text-ink shadow-[2px_2px_0_#211d19]"
             >
               {issue}
             </div>
@@ -683,7 +531,7 @@ export function SettingsStep({
           {generationError ? (
             <div
               role="alert"
-              className="rounded-xl border border-rose-300/25 bg-rose-400/[0.07] px-4 py-3 text-[12.5px] leading-relaxed text-rose-100"
+              className="rounded-xl border-[1.5px] border-ink bg-tomato-soft px-4 py-3 text-[12.5px] font-medium leading-relaxed text-ink shadow-[2px_2px_0_#211d19]"
             >
               {generationError}
             </div>
@@ -740,13 +588,13 @@ export function SettingsStep({
                 ? 'Starting render'
                 : `Generate ${settings.clip_count} ${settings.clip_count === 1 ? 'clip' : 'clips'}`}
             </Button>
-            <div className="mt-3 flex items-center justify-between text-[10px] text-slate-500">
+            <div className="mt-3 flex items-center justify-between text-[10px] text-ink-soft">
               <span>
                 {settings.aspect_ratio} ·{' '}
                 {settings.captions.enabled && captionsAvailable ? 'Captions on' : 'Captions off'}
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                <span className="h-1.5 w-1.5 rounded-full bg-teal" />
                 No watermark
               </span>
             </div>
@@ -782,7 +630,7 @@ function MobileCta({
           ? 'Starting render'
           : `Generate ${settings.clip_count} ${settings.clip_count === 1 ? 'clip' : 'clips'}`}
       </Button>
-      <p className="mt-2.5 text-center text-[10px] text-slate-500">
+      <p className="mt-2.5 text-center text-[10px] text-ink-soft">
         Clean MP4 exports · no watermarks · no usage limits
       </p>
     </>
@@ -811,16 +659,14 @@ function ModeButton({
       className={cn(
         'relative flex items-start gap-3 rounded-xl border p-3.5 text-left transition duration-200',
         selected
-          ? 'border-cyan-300/30 bg-cyan-300/[0.055]'
-          : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.035]',
+          ? 'border-[1.5px] border-ink bg-periwinkle-soft shadow-[2px_3px_0_#211d19]'
+          : 'border-[1.5px] border-ink/25 bg-paper-soft hover:-translate-y-0.5 hover:border-ink hover:bg-mustard-soft/40',
       )}
     >
       <span
         className={cn(
           'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border',
-          selected
-            ? 'border-cyan-300/20 bg-cyan-300/10 text-cyan-100'
-            : 'border-white/[0.07] text-slate-500',
+          selected ? 'border-ink/30 bg-paper text-tomato' : 'border-ink/25 bg-paper text-ink-soft',
         )}
       >
         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -829,15 +675,15 @@ function ModeButton({
         <span
           className={cn(
             'block text-[12.5px] font-semibold',
-            selected ? 'text-white' : 'text-slate-300',
+            selected ? 'text-ink' : 'text-ink-soft',
           )}
         >
           {title}
         </span>
-        <span className="mt-1 block text-[10.5px] leading-4 text-slate-500">{copy}</span>
+        <span className="mt-1 block text-[10.5px] leading-4 text-ink-soft">{copy}</span>
       </span>
       {selected ? (
-        <span className="absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-cyan-300 text-[#041016]">
+        <span className="absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center rounded-full border border-ink bg-mustard text-ink">
           <Check className="h-2.5 w-2.5" strokeWidth={3} aria-hidden="true" />
         </span>
       ) : null}
@@ -845,105 +691,19 @@ function ModeButton({
   )
 }
 
-function ColorRow({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-}) {
-  const inputId = `color-${label.toLowerCase()}`
-  return (
-    <div className="space-y-2">
-      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-      <div className="flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.025] px-2">
-        <input
-          id={inputId}
-          type="color"
-          value={value}
-          onChange={(event) => onChange(event.target.value.toUpperCase())}
-          className="color-input"
-        />
-        <span className="flex-1 font-mono text-[11px] text-slate-400">{value.toUpperCase()}</span>
-        <span
-          className="h-2 w-2 rounded-full"
-          style={{ backgroundColor: value, boxShadow: `0 0 12px ${value}80` }}
-          aria-hidden="true"
-        />
-      </div>
-    </div>
-  )
-}
-
-function CaptionGlyph({ style, active }: { style: CaptionStyle; active: boolean }) {
-  return (
-    <span
-      className={cn(
-        'flex h-6 min-w-9 items-center justify-center rounded border px-1.5 text-[10px] font-semibold tracking-tight',
-        active
-          ? 'border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-200'
-          : 'border-white/[0.08] text-slate-500',
-      )}
-      aria-hidden="true"
-    >
-      {style === 'karaoke' ? (
-        <span>
-          A<span className="text-cyan-300">a</span>
-        </span>
-      ) : style === 'pop' ? (
-        <span className="origin-center scale-110">Aa</span>
-      ) : style === 'typewriter' ? (
-        <span className="font-mono">A|</span>
-      ) : (
-        <span className="font-light">Aa</span>
-      )}
-    </span>
-  )
-}
-
-const FONT_STACKS: Record<CaptionFont, string> = {
-  Inter: 'Inter, sans-serif',
-  Arial: 'Arial, sans-serif',
-  Georgia: 'Georgia, serif',
-  'DejaVu Sans': '"DejaVu Sans", sans-serif',
-}
-
 function PreviewPhone({ preview, settings }: { preview: PreviewResponse; settings: ClipSettings }) {
   const [imageFailed, setImageFailed] = useState(false)
   const blur = settings.reframe_mode === 'blur'
-  const captions = settings.captions
-  const sampleWords = ['Every', 'frame', 'counts.']
-  const activeIndex = settings.captions.style === 'minimal' ? -1 : 1
-  const fontScale = Math.max(0.17, captions.font_size / 1080)
-  const captionFontSize = Math.max(10, Math.round(fontScale * 260))
-  const captionShadow = captions.outline_width
-    ? [
-        `-${captions.outline_width}px 0 0 rgba(0,0,0,.85)`,
-        `${captions.outline_width}px 0 0 rgba(0,0,0,.85)`,
-        `0 -${captions.outline_width}px 0 rgba(0,0,0,.85)`,
-        `0 ${captions.outline_width}px 0 rgba(0,0,0,.85)`,
-        `0 ${captions.shadow + 1}px ${captions.shadow + 2}px rgba(0,0,0,.65)`,
-      ].join(', ')
-    : `0 ${captions.shadow + 1}px ${captions.shadow + 2}px rgba(0,0,0,.65)`
-  const captionStyle: CSSProperties = {
-    fontFamily: FONT_STACKS[captions.font],
-    fontSize: `${captionFontSize}px`,
-    color: captions.color,
-    textShadow: captionShadow,
-    lineHeight: 1.08,
-  }
-  const positionClass =
-    captions.position === 'top'
-      ? 'justify-start pt-[14%]'
-      : captions.position === 'middle'
-        ? 'justify-center'
-        : 'justify-end pb-[16%]'
 
   return (
-    <div className="glass overflow-hidden rounded-2xl p-2.5">
-      <div className="relative mx-auto w-full max-w-[18.5rem] overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#050814] shadow-[0_25px_80px_-35px_rgba(0,0,0,0.9)]">
+    <div className="paper-card taped taped-pink rotate-[0.8deg] p-3 pb-2">
+      <div className="mb-2.5 flex items-center justify-between px-1">
+        <span className="text-[8.5px] font-bold uppercase tracking-[0.16em] text-ink-soft">
+          Your cut · live
+        </span>
+        <span className="font-hand text-[15px] text-tomato">looking good</span>
+      </div>
+      <div className="relative mx-auto w-full max-w-[18.5rem] overflow-hidden rounded-[1.15rem] border-[1.5px] border-ink bg-[#050814] shadow-[3px_4px_0_#211d19]">
         <div className="relative" style={{ aspectRatio: settings.aspect_ratio.replace(':', '/') }}>
           {preview.thumbnail_url && !imageFailed ? (
             <>
@@ -970,10 +730,10 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
           <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/65" />
 
           <div className="absolute inset-x-0 top-0 flex items-center justify-between p-3">
-            <span className="rounded-md border border-white/15 bg-black/35 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.16em] text-white/90 backdrop-blur">
+            <span className="rounded-md border-[1.5px] border-ink bg-mustard px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.12em] text-ink shadow-[1px_1px_0_#211d19]">
               {settings.aspect_ratio}
             </span>
-            <span className="rounded-md border border-white/15 bg-black/35 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.13em] text-white/80 backdrop-blur">
+            <span className="rounded-md border-[1.5px] border-ink bg-paper-soft px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.1em] text-ink shadow-[1px_1px_0_#211d19]">
               {settings.reframe_mode === 'smart'
                 ? 'Face track'
                 : settings.reframe_mode === 'blur'
@@ -994,74 +754,39 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
             ))}
           </div>
 
-          <div
-            className={cn(
-              'absolute inset-0 flex flex-col items-center px-6 text-center',
-              positionClass,
-            )}
-          >
-            {captions.enabled ? (
-              <p style={captionStyle} className="max-w-full">
-                {settings.captions.style === 'typewriter' ? (
-                  <>
-                    Make every <span style={{ color: captions.highlight_color }}>fra</span>
-                    <span className="opacity-50">me</span>
-                    <span className="opacity-0"> count.</span>
-                  </>
-                ) : (
-                  <>
-                    {sampleWords.map((word, index) => (
-                      <span
-                        key={word}
-                        style={
-                          index === activeIndex
-                            ? {
-                                color: captions.highlight_color,
-                                display: 'inline-block',
-                                transform: captions.style === 'pop' ? 'scale(1.08)' : undefined,
-                              }
-                            : undefined
-                        }
-                      >
-                        {word}
-                        {index < sampleWords.length - 1 ? ' ' : ''}
-                      </span>
-                    ))}
-                  </>
-                )}
-              </p>
-            ) : null}
-          </div>
+          {settings.captions.enabled ? (
+            <CaptionPreview settings={settings.captions} loop className="absolute inset-0" />
+          ) : null}
 
           <div className="absolute inset-x-0 bottom-0 flex items-center justify-between px-3 pb-2.5">
-            <span className="inline-flex items-center gap-1 rounded bg-black/45 px-1.5 py-1 text-[8px] font-medium tabular-nums text-white/80 backdrop-blur">
+            <span className="inline-flex items-center gap-1 rounded border border-ink bg-paper-soft px-1.5 py-1 text-[8px] font-bold tabular-nums text-ink shadow-[1px_1px_0_#211d19]">
               <Clock3 className="h-2.5 w-2.5" aria-hidden="true" />
               {formatDuration(preview.duration)}
             </span>
             {settings.transitions.enabled ? (
-              <span className="rounded border border-fuchsia-300/20 bg-black/45 px-1.5 py-1 text-[7px] font-semibold uppercase tracking-[0.14em] text-fuchsia-100/80 backdrop-blur">
+              <span className="rounded border border-ink bg-blush-soft px-1.5 py-1 text-[7px] font-bold uppercase tracking-[0.12em] text-ink shadow-[1px_1px_0_#211d19]">
                 {settings.transitions.style.replace('_', ' ')} ·{' '}
                 {settings.transitions.duration.toFixed(1)}s
               </span>
             ) : null}
           </div>
 
-          <div className="pointer-events-none absolute inset-0 rounded-[1.35rem] ring-1 ring-inset ring-white/10" />
+          <div className="pointer-events-none absolute inset-0 rounded-[1.15rem] ring-1 ring-inset ring-white/10" />
         </div>
       </div>
 
       <div className="px-1.5 pb-1 pt-3.5">
         <div className="flex items-center justify-between gap-3">
-          <p className="min-w-0 truncate font-display text-[12.5px] font-medium text-slate-200">
+          <p className="min-w-0 truncate font-display text-[12.5px] font-medium text-ink">
             {preview.title}
           </p>
-          <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
+          <span className="shrink-0 text-[10px] tabular-nums text-ink-soft">
             {settings.clip_count} clips
           </span>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           <PreviewTag>
-            {settings.captions.enabled ? settings.captions.style : 'No captions'}
+            {settings.captions.enabled ? settings.captions.word_style ?? settings.captions.line_style ?? 'No motion' : 'No captions'}
           </PreviewTag>
           <PreviewTag>{settings.selection_mode === 'auto' ? 'Auto cuts' : 'Even split'}</PreviewTag>
           <PreviewTag>{settings.aspect_ratio}</PreviewTag>
@@ -1073,7 +798,7 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
 
 function PreviewTag({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded border border-white/[0.075] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-medium capitalize text-slate-500">
+    <span className="rounded border border-ink/20 bg-paper px-1.5 py-0.5 text-[9px] font-semibold capitalize text-ink-soft">
       {children}
     </span>
   )

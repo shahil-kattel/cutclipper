@@ -6,7 +6,12 @@ import random
 import pytest
 
 from app.core.errors import SelectionError
-from app.pipeline.selection import select_clips
+from app.pipeline.selection import (
+    TranscriptionWindow,
+    effective_clip_count,
+    plan_transcription_windows,
+    select_clips,
+)
 from app.pipeline.types import Sentence, Transcript, Word
 from app.schemas import ClipSelectionMode, ClipSettings
 from app.services.audio import EnergyProfile
@@ -144,12 +149,13 @@ def test_even_split_snaps_near_targets() -> None:
     assert result.clips[-1].end == pytest.approx(duration, abs=0.01)
 
 
-def test_video_too_short_raises_clear_error() -> None:
+def test_video_too_short_raises_clear_error_in_even_mode() -> None:
     transcript = make_transcript(12.0)
     settings = ClipSettings(
         clip_count=3,
         min_clip_seconds=5,
         max_clip_seconds=10,
+        selection_mode=ClipSelectionMode.EVEN,
     )
     with pytest.raises(SelectionError) as error:
         select_clips(
@@ -161,6 +167,90 @@ def test_video_too_short_raises_clear_error() -> None:
         )
     assert "Reduce the clip count" in error.value.message
     assert error.value.details["reason"] == "video_too_short"
+
+
+def test_auto_reduces_clip_count_to_fit_duration() -> None:
+    duration = 12.0
+    transcript = make_transcript(duration)
+    settings = ClipSettings(clip_count=3, min_clip_seconds=5, max_clip_seconds=10)
+    result = select_clips(
+        duration=duration,
+        settings=settings,
+        transcript=transcript,
+        scenes=[],
+        energy=None,
+    )
+    assert len(result.clips) == 2
+    assert effective_clip_count(duration=duration, settings=settings) == 2
+    assert any("fits at most 2 clips" in warning for warning in result.warnings)
+
+
+def test_auto_caps_at_six_generated_clips() -> None:
+    duration = 240.0
+    transcript = make_transcript(duration)
+    energy = make_energy(
+        duration,
+        [(10, 35), (50, 75), (90, 115), (130, 155), (170, 195), (210, 235)],
+    )
+    settings = ClipSettings(clip_count=12, min_clip_seconds=10, max_clip_seconds=25)
+    assert effective_clip_count(duration=duration, settings=settings) == 6
+    result = select_clips(
+        duration=duration,
+        settings=settings,
+        transcript=transcript,
+        scenes=[],
+        energy=energy,
+    )
+    assert len(result.clips) == 6
+    assert any("at most 6 clips" in warning for warning in result.warnings)
+
+
+def test_partial_transcription_windows_avoid_the_whole_source() -> None:
+    duration = 1200.0
+    energy = make_energy(duration, [(120, 190), (540, 610), (960, 1030)])
+    settings = ClipSettings(clip_count=3, min_clip_seconds=30, max_clip_seconds=60)
+    windows = plan_transcription_windows(duration=duration, settings=settings, energy=energy)
+    assert len(windows) == 3
+    assert sum(window.duration for window in windows) < duration * 0.25
+    assert windows[0].start < windows[1].start < windows[2].start
+
+
+def test_auto_selection_stays_inside_transcription_windows() -> None:
+    duration = 600.0
+    transcript = make_transcript(duration)
+    energy = make_energy(duration, [(30, 90), (300, 360)])
+    windows = [
+        TranscriptionWindow(28.0, 92.0),
+        TranscriptionWindow(298.0, 362.0),
+    ]
+    settings = ClipSettings(clip_count=2, min_clip_seconds=10, max_clip_seconds=25)
+    result = select_clips(
+        duration=duration,
+        settings=settings,
+        transcript=transcript,
+        scenes=[],
+        energy=energy,
+        allowed_windows=windows,
+    )
+    assert len(result.clips) == 2
+    for clip in result.clips:
+        assert any(
+            clip.start >= window.start - 0.5 and clip.end <= window.end + 0.5 for window in windows
+        )
+
+
+def test_partial_windows_cover_even_slots() -> None:
+    duration = 120.0
+    settings = ClipSettings(
+        clip_count=2,
+        min_clip_seconds=20,
+        max_clip_seconds=45,
+        selection_mode=ClipSelectionMode.EVEN,
+    )
+    windows = plan_transcription_windows(duration=duration, settings=settings)
+    assert len(windows) == 1  # merged, because two padded slots meet in the middle
+    assert windows[0].start == 0
+    assert windows[0].end == pytest.approx(duration)
 
 
 def test_video_without_speech_still_returns_requested_count() -> None:

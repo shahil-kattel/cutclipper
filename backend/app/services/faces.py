@@ -197,6 +197,73 @@ async def _extract_frames(
         )
 
 
+async def probe_faces_present(
+    source: Path,
+    duration: float,
+    work_dir: Path,
+    *,
+    cancel_event: Event,
+    samples: int = 8,
+) -> bool:
+    """Cheap whole-video probe: are there any faces worth tracking at all?
+
+    Returns True on any uncertainty so callers keep the normal per-clip path.
+    """
+
+    if duration <= 0:
+        return False
+    token = uuid.uuid4().hex[:10]
+    frames_dir = work_dir / f"face_probe_{token}"
+    output_path = work_dir / f"face_probe_{token}.json"
+    sample_rate = max(0.002, samples / duration)
+    try:
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        command = [
+            get_media_tools().ffmpeg,
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(source),
+            "-vf",
+            f"fps={sample_rate:.6f},scale=480:-2",
+            "-frames:v",
+            str(samples),
+            "-q:v",
+            "4",
+            str(frames_dir / "frame_%03d.jpg"),
+        ]
+        result = await run_process(command, cancel_event=cancel_event, timeout_seconds=120)
+        frames = list(frames_dir.glob("*.jpg"))
+        if result.returncode != 0 or not frames:
+            return True
+        worker = await run_process(
+            [sys.executable, "-m", "app.services.face_worker", str(frames_dir), str(output_path)],
+            cancel_event=cancel_event,
+            timeout_seconds=120,
+            cwd=BACKEND_ROOT,
+            env=_worker_env(),
+        )
+        if worker.returncode != 0 or not output_path.exists():
+            return True
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        if not payload.get("ok"):
+            return True
+        return any(
+            sample is not None and "x" in sample for sample in (payload.get("samples") or [])
+        )
+    except JobCancelledError:
+        raise
+    except Exception as exc:
+        logger.info("face presence probe failed; keeping face tracking", extra={"error": str(exc)})
+        return True
+    finally:
+        shutil.rmtree(frames_dir, ignore_errors=True)
+        output_path.unlink(missing_ok=True)
+
+
 async def track_faces(
     source: Path,
     work_dir: Path,

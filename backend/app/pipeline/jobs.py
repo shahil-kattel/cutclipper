@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import json
 import logging
 import os
@@ -28,13 +29,22 @@ from app.core.errors import (
 )
 from app.core.validation import validate_remote_url
 from app.logging_setup import job_id_ctx
+from app.pipeline.caption_render import render_captioned_video
+from app.pipeline.captions import words_from_segments
 from app.pipeline.renderer import ClipRenderer, safe_title_slug
-from app.pipeline.selection import select_clips
-from app.pipeline.types import Transcript
+from app.pipeline.selection import (
+    TranscriptionWindow,
+    plan_transcription_windows,
+    select_clips,
+)
+from app.pipeline.types import ClipPlan, Transcript, Word
 from app.schemas import (
     STAGE_LABELS,
+    CaptionSegment,
+    CaptionSettings,
     ClipOut,
     ClipSettings,
+    JobMode,
     JobOut,
     JobStage,
     JobStatus,
@@ -44,7 +54,7 @@ from app.services.audio import EnergyProfile, analyze_energy, extract_audio
 from app.services.downloader import download_video, fetch_metadata
 from app.services.media import probe_media
 from app.services.scenes import detect_scenes
-from app.services.transcriber import transcribe_audio
+from app.services.transcriber import transcribe_audio, transcribe_windows
 from app.services.uploads import UploadStore
 
 logger = logging.getLogger(__name__)
@@ -74,6 +84,9 @@ class JobRecord:
     url: str
     settings: ClipSettings
     upload_id: str | None = None
+    mode: JobMode = JobMode.CLIPS
+    segments: list[CaptionSegment] | None = None
+    language: str | None = None
     status: JobStatus = JobStatus.QUEUED
     stage: JobStage = JobStage.QUEUED
     progress: float = 0.0
@@ -91,6 +104,9 @@ class JobRecord:
     cancel_requested: bool = False
     zip_path: Path | None = None
     source_path: Path | None = None
+    caption_words: list[Word] = field(default_factory=list)
+    clip_plans: list[ClipPlan] = field(default_factory=list)
+    restyle_of: str | None = None
 
     @property
     def job_dir(self) -> Path:
@@ -175,6 +191,9 @@ class JobManager:
         settings: ClipSettings,
         *,
         upload_id: str | None = None,
+        mode: JobMode = JobMode.CLIPS,
+        segments: list[CaptionSegment] | None = None,
+        language: str | None = None,
     ) -> JobRecord:
         job_id = uuid.uuid4().hex
         video = self.cached_preview(url) if url else None
@@ -186,6 +205,9 @@ class JobManager:
             url=url or (f"upload://{upload_id}" if upload_id else ""),
             settings=settings,
             upload_id=upload_id,
+            mode=mode,
+            segments=segments,
+            language=language,
             video=video,
             base_dir=self.settings.jobs_dir,
             message="Queued for processing",
@@ -197,6 +219,82 @@ class JobManager:
         self.jobs[job_id] = record
         await self.queue.put(job_id)
         logger.info("job created", extra={"job_id": job_id})
+        return record
+
+    async def create_restyle_job(
+        self,
+        source_job_id: str,
+        captions: CaptionSettings,
+    ) -> JobRecord:
+        """Queue a caption-only re-render using the original source and cut plan."""
+
+        source = self.get(source_job_id)
+        if source.status != JobStatus.COMPLETED:
+            raise AppError(
+                "Wait for this render to finish before changing its captions.",
+                code="job_not_ready",
+                status_code=409,
+            )
+        if source.source_path is None or not source.source_path.exists():
+            raise AppError(
+                "The original source file is no longer available. Start a new project.",
+                code="source_expired",
+                status_code=410,
+            )
+        if source.mode == JobMode.CAPTIONS and not captions.enabled:
+            raise AppError(
+                "Caption exports keep captions enabled. Choose a style or turn off captions "
+                "in a regular clip job.",
+                code="captions_required",
+                status_code=422,
+            )
+        if (
+            source.mode == JobMode.CLIPS
+            and source.settings.captions.enabled is False
+            and captions.enabled
+            and not source.caption_words
+        ):
+            raise AppError(
+                "This render has no speech timings available for captions.",
+                code="captions_unavailable",
+                status_code=422,
+            )
+        if source.mode == JobMode.CLIPS and not source.clip_plans:
+            raise AppError(
+                "The original clip plan is unavailable. Start a new project.",
+                code="cut_plan_missing",
+                status_code=410,
+            )
+
+        job_id = uuid.uuid4().hex
+        settings = source.settings.model_copy(deep=True)
+        settings.captions = captions
+        record = JobRecord(
+            id=job_id,
+            url=source.url,
+            settings=settings,
+            upload_id=source.upload_id,
+            mode=source.mode,
+            video=source.video,
+            caption_words=copy.deepcopy(source.caption_words),
+            clip_plans=copy.deepcopy(source.clip_plans),
+            restyle_of=source.id,
+            base_dir=self.settings.jobs_dir,
+            message="Queued caption update",
+        )
+        downloads = record.job_dir / "downloads"
+        downloads.mkdir(parents=True, exist_ok=True)
+        (record.job_dir / "work").mkdir(exist_ok=True)
+        (record.job_dir / "outputs").mkdir(exist_ok=True)
+        target = downloads / f"source{source.source_path.suffix}"
+        try:
+            os.link(source.source_path, target)
+        except OSError:
+            await asyncio.to_thread(shutil.copyfile, source.source_path, target)
+        record.source_path = target
+        self.jobs[job_id] = record
+        await self.queue.put(job_id)
+        logger.info("caption restyle queued", extra={"job_id": job_id, "source": source.id})
         return record
 
     def get(self, job_id: str) -> JobRecord:
@@ -321,6 +419,7 @@ class JobManager:
             updated_at=record.updated_at,
             video=video,
             settings=record.settings,
+            mode=record.mode,
             clips=clips,
             warnings=record.warnings,
             error_code=record.error_code,
@@ -332,6 +431,8 @@ class JobManager:
                 if record.clips and record.status == JobStatus.COMPLETED
                 else None
             ),
+            is_restyle=bool(record.restyle_of),
+            restyled_from=record.restyle_of,
         )
 
     def _update(
@@ -413,7 +514,10 @@ class JobManager:
                 record.revision += 1
                 token = job_id_ctx.set(record.id)
                 try:
-                    await self._run_pipeline(record)
+                    if record.restyle_of:
+                        await self._run_restyle(record)
+                    else:
+                        await self._run_pipeline(record)
                 except JobCancelledError:
                     self._cancel(record)
                 except AppError as exc:
@@ -450,6 +554,380 @@ class JobManager:
             shutil.copyfile(upload.path, target)
         return target
 
+    async def _run_restyle(self, record: JobRecord) -> None:
+        """Re-render existing cuts with new caption settings, without re-analysing."""
+
+        cancel = record.cancel_event
+        source_path = record.source_path
+        if source_path is None or not source_path.exists():
+            raise ProcessingError(
+                "The original source video is unavailable. Start a new project.",
+                code="source_expired",
+            )
+        work = record.job_dir / "work"
+        outputs = record.job_dir / "outputs"
+        outputs.mkdir(parents=True, exist_ok=True)
+        work.mkdir(parents=True, exist_ok=True)
+
+        stage = JobStage.CAPTIONING if record.mode == JobMode.CAPTIONS else JobStage.REFRAMING
+        self._update(
+            record,
+            stage=stage,
+            progress=3,
+            message="Preparing your caption update",
+        )
+        media = await probe_media(str(source_path))
+        if record.video:
+            record.video = record.video.model_copy(
+                update={
+                    "duration": round(media.duration, 3),
+                    "width": media.width,
+                    "height": media.height,
+                    "fps": round(media.fps, 3),
+                    "has_audio": media.has_audio,
+                }
+            )
+        else:
+            record.video = VideoMetadata(
+                title="CutClipper export",
+                duration=media.duration,
+                source_url=record.url,
+                width=media.width,
+                height=media.height,
+                fps=media.fps,
+                has_audio=media.has_audio,
+            )
+        words = list(record.caption_words)
+        title_slug = safe_title_slug(record.video.title)
+
+        if record.mode == JobMode.CAPTIONS:
+            if not record.settings.captions.enabled:
+                raise ProcessingError(
+                    "Caption exports must keep captions enabled.",
+                    code="captions_required",
+                )
+
+            def render_progress(fraction: float) -> None:
+                self._update(
+                    record,
+                    stage=JobStage.RENDERING,
+                    progress=12 + max(0.0, min(1.0, fraction)) * 82,
+                )
+
+            self._update(
+                record,
+                stage=JobStage.CAPTIONING,
+                progress=8,
+                message=f"Restyling {len(words)} caption words",
+            )
+            rendered = await render_captioned_video(
+                source=source_path,
+                media=media,
+                settings=self.settings,
+                captions=record.settings.captions,
+                words=words,
+                title_slug=title_slug,
+                work_dir=work,
+                output_dir=outputs,
+                cancel_event=cancel,
+                on_progress=render_progress,
+            )
+            record.warnings = [
+                warning
+                for warning in record.warnings
+                if "caption" not in warning.lower() or "style" in warning.lower()
+            ]
+            if rendered.warnings:
+                self._update(record, warnings=rendered.warnings)
+            record.clips = [
+                StoredClip(
+                    id="01",
+                    index=1,
+                    start=0.0,
+                    end=media.duration,
+                    score=100.0,
+                    width=rendered.width,
+                    height=rendered.height,
+                    filename=rendered.filename,
+                    video_path=rendered.video_path,
+                    thumbnail_path=rendered.thumbnail_path,
+                    file_size=rendered.video_path.stat().st_size,
+                )
+            ]
+        else:
+            plans = list(record.clip_plans)
+            if not plans:
+                raise ProcessingError(
+                    "The original cut plan is unavailable. Start a new project.",
+                    code="cut_plan_missing",
+                )
+            transcript = Transcript(words=words, duration=media.duration)
+            renderer = ClipRenderer(
+                source=source_path,
+                media=media,
+                settings=self.settings,
+                clip_settings=record.settings,
+                work_dir=work,
+                output_dir=outputs,
+                cancel_event=cancel,
+            )
+            record.clips = []
+            clip_count = len(plans)
+            for index, plan in enumerate(plans, start=1):
+                if cancel.is_set():
+                    raise JobCancelledError()
+                base_fraction = (index - 1) / clip_count
+
+                def on_stage(
+                    stage_name: JobStage,
+                    message: str,
+                    clip_fraction: float,
+                    *,
+                    index: int = index,
+                    base_fraction: float = base_fraction,
+                ) -> None:
+                    overall = 8 + (base_fraction + clip_fraction / clip_count) * 86
+                    self._update(
+                        record,
+                        stage=stage_name,
+                        progress=overall,
+                        message=f"{message} · {index} of {clip_count}",
+                    )
+
+                def on_progress(
+                    clip_fraction: float,
+                    *,
+                    base_fraction: float = base_fraction,
+                ) -> None:
+                    overall = 8 + (base_fraction + clip_fraction / clip_count) * 86
+                    self._update(
+                        record,
+                        stage=JobStage.RENDERING,
+                        progress=overall,
+                    )
+
+                rendered = await renderer.render(
+                    plan,
+                    index,
+                    transcript,
+                    on_stage=on_stage,
+                    on_progress=on_progress,
+                    title_slug=title_slug,
+                )
+                if rendered.warnings:
+                    self._update(record, warnings=rendered.warnings)
+                record.clips.append(
+                    StoredClip(
+                        id=f"{index:02d}",
+                        index=index,
+                        start=plan.start,
+                        end=plan.end,
+                        score=plan.score,
+                        width=rendered.width,
+                        height=rendered.height,
+                        filename=rendered.filename,
+                        video_path=rendered.video_path,
+                        thumbnail_path=rendered.thumbnail_path,
+                        file_size=rendered.video_path.stat().st_size,
+                    )
+                )
+
+        if cancel.is_set():
+            raise JobCancelledError()
+        self._update(
+            record,
+            stage=JobStage.PACKAGING,
+            progress=97,
+            message="Packaging your updated export",
+        )
+        zip_name = (
+            "cutclipper-captioned.zip"
+            if record.mode == JobMode.CAPTIONS
+            else "cutclipper-clips.zip"
+        )
+        zip_path = outputs / zip_name
+        try:
+            await asyncio.to_thread(self._build_zip, record.clips, zip_path)
+            record.zip_path = zip_path
+        except Exception as exc:
+            record.zip_path = None
+            logger.warning("restyle zip prebuild failed", extra={"error": str(exc)})
+        self._finish(record, message="Caption style updated · ready to download")
+        logger.info(
+            "caption restyle complete",
+            extra={"clips": len(record.clips), "source": record.restyle_of},
+        )
+
+    async def _run_caption_pipeline(
+        self,
+        record: JobRecord,
+        metadata: VideoMetadata,
+        downloads: Path,
+        work: Path,
+        outputs: Path,
+        cancel: Event,
+    ) -> None:
+        """Burn editable captions onto the full uploaded video."""
+
+        if not record.upload_id:
+            raise ProcessingError("Caption jobs require an uploaded video.", code="upload_missing")
+
+        self._update(
+            record,
+            stage=JobStage.FETCHING,
+            progress=4,
+            message="Preparing your uploaded video",
+        )
+        source_path = await asyncio.to_thread(self._prepare_upload, record, downloads)
+        record.source_path = source_path
+
+        self._update(
+            record,
+            stage=JobStage.PROBING,
+            progress=12,
+            message="Inspecting video streams",
+        )
+        media = await probe_media(str(source_path))
+        video = record.video or metadata
+        record.video = video.model_copy(
+            update={
+                "duration": round(media.duration, 3),
+                "width": media.width,
+                "height": media.height,
+                "fps": round(media.fps, 3),
+                "has_audio": media.has_audio,
+            }
+        )
+
+        words = words_from_segments(record.segments) if record.segments else []
+        if record.segments:
+            self._update(
+                record,
+                stage=JobStage.CAPTIONING,
+                progress=48,
+                message=f"Using {len(record.segments)} edited caption lines",
+            )
+        elif media.has_audio:
+            self._update(
+                record,
+                stage=JobStage.TRANSCRIBING,
+                progress=18,
+                message="Extracting audio for captions",
+            )
+            audio_path = await extract_audio(
+                source_path,
+                work / "audio.wav",
+                cancel_event=cancel,
+            )
+
+            def caption_progress(fraction: float, message: str) -> None:
+                self._update(
+                    record,
+                    stage=JobStage.TRANSCRIBING,
+                    progress=20 + max(0.0, min(1.0, fraction)) * 28,
+                    message=message,
+                )
+
+            transcript = await transcribe_audio(
+                audio_path,
+                media.duration,
+                self.settings,
+                cancel_event=cancel,
+                on_progress=caption_progress,
+                language=record.language,
+            )
+            words = transcript.words
+            record.caption_words = list(words)
+            if transcript.warnings:
+                self._update(record, warnings=transcript.warnings)
+            if not words:
+                self._update(
+                    record,
+                    warnings=["No speech was detected in this video."],
+                )
+        else:
+            self._update(
+                record,
+                warnings=["The video has no audio track, so no captions could be generated."],
+            )
+
+        record.caption_words = list(words)
+        if not words:
+            raise ProcessingError(
+                "No speech was detected, so there was nothing to caption. Add caption lines "
+                "manually and try again.",
+                code="no_speech",
+            )
+
+        self._update(
+            record,
+            stage=JobStage.CAPTIONING,
+            progress=52,
+            message=f"Animating {len(words)} words",
+        )
+
+        def render_progress(fraction: float) -> None:
+            self._update(
+                record,
+                stage=JobStage.RENDERING,
+                progress=55 + max(0.0, min(1.0, fraction)) * 40,
+            )
+
+        rendered = await render_captioned_video(
+            source=source_path,
+            media=media,
+            settings=self.settings,
+            captions=record.settings.captions,
+            words=words,
+            title_slug=safe_title_slug(metadata.title),
+            work_dir=work,
+            output_dir=outputs,
+            cancel_event=cancel,
+            on_progress=render_progress,
+        )
+        if rendered.warnings:
+            self._update(record, warnings=rendered.warnings)
+        record.clips.append(
+            StoredClip(
+                id="01",
+                index=1,
+                start=0.0,
+                end=media.duration,
+                score=100.0,
+                width=rendered.width,
+                height=rendered.height,
+                filename=rendered.filename,
+                video_path=rendered.video_path,
+                thumbnail_path=rendered.thumbnail_path,
+                file_size=rendered.video_path.stat().st_size,
+            )
+        )
+
+        if cancel.is_set():
+            raise JobCancelledError()
+        self._update(
+            record,
+            stage=JobStage.PACKAGING,
+            progress=97,
+            message="Packaging your captioned video",
+        )
+        try:
+            zip_path = outputs / "cutclipper-captioned.zip"
+            await asyncio.to_thread(self._build_zip, record.clips, zip_path)
+            record.zip_path = zip_path
+        except Exception as exc:
+            logger.warning("zip prebuild failed", extra={"error": str(exc)})
+
+        self._finish(record, message="Captioned video ready · download it now")
+        logger.info(
+            "caption job complete",
+            extra={
+                "duration": media.duration,
+                "words": len(words),
+                "edited": bool(record.segments),
+            },
+        )
+
     async def _run_pipeline(self, record: JobRecord) -> None:
         cancel = record.cancel_event
         record.job_dir.mkdir(parents=True, exist_ok=True)
@@ -478,6 +956,10 @@ class JobManager:
                 )
                 metadata = await fetch_metadata(record.url, self.settings)
             record.video = metadata
+
+        if record.mode == JobMode.CAPTIONS:
+            await self._run_caption_pipeline(record, metadata, downloads, work, outputs, cancel)
+            return
 
         if metadata.duration > 0:
             needed = record.settings.clip_count * record.settings.min_clip_seconds
@@ -564,6 +1046,8 @@ class JobManager:
         transcript = Transcript(duration=media.duration)
         energy: EnergyProfile | None = None
         audio_path: Path | None = None
+        windows: list[TranscriptionWindow] | None = None
+        partial_transcription = False
         if media.has_audio:
             self._update(
                 record,
@@ -577,27 +1061,69 @@ class JobManager:
                     work / "audio.wav",
                     cancel_event=cancel,
                 )
+                self._update(record, progress=28, message="Finding speech-rich sections")
+                try:
+                    energy = await analyze_energy(audio_path)
+                except JobCancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("audio energy analysis failed", extra={"error": str(exc)})
+                    energy = None
+                    self._update(
+                        record,
+                        warnings=[
+                            "Audio energy analysis was unavailable; highlights were scored "
+                            "with the remaining signals."
+                        ],
+                    )
+
+                windows = plan_transcription_windows(
+                    duration=media.duration,
+                    settings=record.settings,
+                    energy=energy,
+                )
+                partial_transcription = not (
+                    len(windows) == 1
+                    and windows[0].start <= 0.01
+                    and windows[0].end >= media.duration - 0.1
+                )
                 self._update(
                     record,
-                    progress=27,
-                    message=f"Transcribing with Whisper ({self.settings.whisper_model})",
+                    progress=30,
+                    message=(
+                        f"Transcribing {len(windows)} highlight sections"
+                        if partial_transcription
+                        else f"Transcribing with Whisper ({self.settings.whisper_model})"
+                    ),
                 )
 
                 def transcription_progress(fraction: float, message: str) -> None:
                     self._update(
                         record,
                         stage=JobStage.TRANSCRIBING,
-                        progress=27 + max(0.0, min(1.0, fraction)) * 22,
+                        progress=30 + max(0.0, min(1.0, fraction)) * 20,
                         message=message,
                     )
 
-                transcript = await transcribe_audio(
-                    audio_path,
-                    media.duration,
-                    self.settings,
-                    cancel_event=cancel,
-                    on_progress=transcription_progress,
-                )
+                if partial_transcription:
+                    transcript = await transcribe_windows(
+                        audio_path,
+                        list(windows),
+                        media.duration,
+                        self.settings,
+                        cancel_event=cancel,
+                        on_progress=transcription_progress,
+                        language=record.language,
+                    )
+                else:
+                    transcript = await transcribe_audio(
+                        audio_path,
+                        media.duration,
+                        self.settings,
+                        cancel_event=cancel,
+                        on_progress=transcription_progress,
+                        language=record.language,
+                    )
                 self._update(
                     record,
                     progress=50,
@@ -635,35 +1161,9 @@ class JobManager:
             record,
             stage=JobStage.FINDING_HIGHLIGHTS,
             progress=52,
-            message="Analyzing scenes, audio energy, and sentence boundaries",
+            message="Analyzing scenes and sentence boundaries",
         )
-        scene_task = asyncio.create_task(detect_scenes(source_path, work, cancel_event=cancel))
-        energy_task: asyncio.Task[EnergyProfile] | None = None
-        if audio_path is not None:
-            energy_task = asyncio.create_task(analyze_energy(audio_path))
-        try:
-            scenes = await scene_task
-            if energy_task is not None:
-                try:
-                    energy = await energy_task
-                except JobCancelledError:
-                    raise
-                except Exception as exc:
-                    logger.warning("audio energy analysis failed", extra={"error": str(exc)})
-                    energy = None
-                    self._update(
-                        record,
-                        warnings=[
-                            "Audio energy analysis was unavailable; highlights were scored "
-                            "with the remaining signals."
-                        ],
-                    )
-        finally:
-            for task in (scene_task, energy_task):
-                if task is not None and not task.done():
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
-                        await task
+        scenes = await detect_scenes(source_path, work, cancel_event=cancel)
         for warning in scenes.warnings:
             self._update(record, warnings=[warning])
 
@@ -673,7 +1173,10 @@ class JobManager:
             transcript=transcript,
             scenes=scenes.cuts,
             energy=energy,
+            allowed_windows=windows if partial_transcription else None,
         )
+        record.caption_words = list(transcript.words)
+        record.clip_plans = copy.deepcopy(selection.clips)
         for warning in selection.warnings:
             self._update(record, warnings=[warning])
         self._update(

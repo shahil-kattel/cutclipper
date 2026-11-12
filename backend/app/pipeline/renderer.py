@@ -22,7 +22,7 @@ from app.schemas import (
     TransitionSettings,
     TransitionStyle,
 )
-from app.services.faces import FaceTrack, track_faces
+from app.services.faces import FaceTrack, probe_faces_present, track_faces
 from app.services.media import (
     MediaInfo,
     MediaTools,
@@ -363,6 +363,7 @@ class ClipRenderer:
         self.output_dir = output_dir
         self.cancel_event = cancel_event
         self.tools = get_media_tools(settings)
+        self._faces_present: bool | None = None
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (work_dir / "captions").mkdir(parents=True, exist_ok=True)
 
@@ -386,21 +387,46 @@ class ClipRenderer:
         warnings: list[str] = []
 
         face_track: FaceTrack | None = None
+        effective_reframe = reframe_mode
         if reframe_mode == ReframeMode.SMART:
-            on_stage(
-                JobStage.REFRAMING,
-                f"Tracking the speaker for clip {index}",
-                0.02,
-            )
-            face_track = await track_faces(
-                self.source,
-                self.work_dir,
-                plan.start,
-                duration,
-                cancel_event=self.cancel_event,
-            )
-            if face_track.warning:
-                warnings.append(face_track.warning)
+            if self._faces_present is None:
+                on_stage(JobStage.REFRAMING, "Checking the video for faces", 0.01)
+                self._faces_present = await probe_faces_present(
+                    self.source,
+                    self.media.duration,
+                    self.work_dir,
+                    cancel_event=self.cancel_event,
+                    samples=min(24, max(8, int(self.media.duration / 30))),
+                )
+                if not self._faces_present:
+                    warnings.append(
+                        "No faces were detected in this video, so clips use a resized frame "
+                        "instead of face tracking."
+                    )
+            if self._faces_present:
+                on_stage(
+                    JobStage.REFRAMING,
+                    f"Tracking the speaker for clip {index}",
+                    0.02,
+                )
+                face_track = await track_faces(
+                    self.source,
+                    self.work_dir,
+                    plan.start,
+                    duration,
+                    cancel_event=self.cancel_event,
+                )
+                if face_track.warning:
+                    warnings.append(face_track.warning)
+                if not face_track.has_face:
+                    # Faces exist somewhere, but not in this clip: preserve the
+                    # full frame with a blurred background instead of cropping.
+                    face_track = None
+                    effective_reframe = ReframeMode.BLUR
+                    on_stage(JobStage.REFRAMING, "No face in this clip · resizing", 0.05)
+            else:
+                effective_reframe = ReframeMode.BLUR
+                on_stage(JobStage.REFRAMING, "Resizing frame · no face tracking", 0.05)
         else:
             on_stage(JobStage.REFRAMING, f"Reframing clip {index}", 0.05)
 
@@ -451,7 +477,7 @@ class ClipRenderer:
             transitions=transitions,
             settings=self.settings,
             fonts_dir=self.settings.fonts_dir,
-            reframe_mode=reframe_mode,
+            reframe_mode=effective_reframe,
         )
         filter_complex = video_chain
         audio_map: str | None = None

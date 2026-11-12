@@ -79,29 +79,30 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: () => void
       exit={{ opacity: 0, y: 8, scale: 0.96 }}
       transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        'glass pointer-events-auto flex w-full items-start gap-3 rounded-2xl px-4 py-3.5 text-sm shadow-card',
-        item.tone === 'error' && 'border-rose-400/25',
-        item.tone === 'success' && 'border-emerald-300/20',
+        'pointer-events-auto flex w-full -rotate-[0.4deg] items-start gap-3 rounded-xl border-[1.5px] border-ink bg-paper-soft px-4 py-3.5 text-sm shadow-[4px_5px_0_#211d19]',
+        item.tone === 'error' && 'bg-tomato-soft',
+        item.tone === 'success' && 'bg-mustard-soft',
       )}
       role={item.tone === 'error' ? 'alert' : 'status'}
     >
-      <Icon
+      <span
         className={cn(
-          'mt-0.5 h-4.5 w-4.5 shrink-0',
+          'mt-0.5 flex h-7 w-7 shrink-0 rotate-[-4deg] items-center justify-center rounded-lg border-[1.5px] border-ink shadow-[1px_2px_0_#211d19]',
           item.tone === 'success'
-            ? 'text-emerald-300'
+            ? 'bg-teal-soft text-teal'
             : item.tone === 'error'
-              ? 'text-rose-300'
-              : 'text-cyan-300',
+              ? 'bg-tomato text-paper-soft'
+              : 'bg-periwinkle-soft text-periwinkle',
         )}
-        aria-hidden="true"
-      />
-      <p className="min-w-0 flex-1 leading-relaxed text-slate-100">{item.message}</p>
+      >
+        <Icon className="h-4 w-4" aria-hidden="true" />
+      </span>
+      <p className="min-w-0 flex-1 pt-0.5 font-medium leading-relaxed text-ink">{item.message}</p>
       <button
         type="button"
         onClick={onDismiss}
         aria-label="Dismiss notification"
-        className="-mr-1 rounded-md p-1 text-slate-400 transition hover:bg-white/5 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
+        className="-mr-1 rounded-md p-1 text-ink-soft transition hover:bg-ink/10 hover:text-ink"
       >
         <X className="h-4 w-4" aria-hidden="true" />
       </button>

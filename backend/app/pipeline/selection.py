@@ -16,6 +16,38 @@ from app.services.audio import EnergyProfile
 
 MIN_CUT_GAP = 0.06
 _EPSILON = 0.015
+AUTO_MAX_CLIPS = 6
+# When the planned windows cover this much of the source, full transcription is
+# cheaper than slicing and keeps the highlight scorer on the whole transcript.
+_FULL_TRANSCRIPTION_COVERAGE = 0.72
+
+
+@dataclass(slots=True)
+class TranscriptionWindow:
+    start: float
+    end: float
+
+    @property
+    def duration(self) -> float:
+        return max(0.0, self.end - self.start)
+
+
+def effective_clip_count(*, duration: float, settings: ClipSettings) -> int:
+    """How many clips the current mode will actually produce.
+
+    Auto mode is capped at six clips and automatically reduced when the source
+    is too short for the requested count. Even mode keeps the user's explicit
+    count (selection will explain if it cannot fit).
+    """
+
+    requested = max(1, int(settings.clip_count))
+    min_length = max(0.001, float(settings.min_clip_seconds))
+    max_by_duration = max(0, int(duration // min_length))
+    if settings.selection_mode == ClipSelectionMode.AUTO:
+        requested = min(requested, AUTO_MAX_CLIPS)
+    if max_by_duration < 1:
+        return requested
+    return max(1, min(requested, max_by_duration))
 
 
 @dataclass(slots=True)
@@ -40,16 +72,33 @@ def select_clips(
     transcript: Transcript,
     scenes: list[float],
     energy: EnergyProfile | None,
+    allowed_windows: list[TranscriptionWindow] | None = None,
 ) -> SelectionResult:
     """Choose exactly N non-overlapping clips without splitting sentences."""
 
-    count = settings.clip_count
+    requested = settings.clip_count
     min_length = float(settings.min_clip_seconds)
     max_length = float(settings.max_clip_seconds)
     if duration <= 0:
         raise SelectionError("The video has no usable duration.")
-    if count < 1 or count > 20:
+    if requested < 1 or requested > 20:
         raise SelectionError("Choose between 1 and 20 clips.")
+
+    auto_warnings: list[str] = []
+    if settings.selection_mode == ClipSelectionMode.AUTO:
+        count = effective_clip_count(duration=duration, settings=settings)
+        if count < requested:
+            capped = min(requested, AUTO_MAX_CLIPS)
+            if requested > AUTO_MAX_CLIPS:
+                auto_warnings.append("Auto-highlights makes at most 6 clips per video.")
+            max_by_duration = max(0, int(duration // max(min_length, 0.001)))
+            if 0 < max_by_duration < capped:
+                auto_warnings.append(
+                    f"This video fits at most {max_by_duration} clips of at least "
+                    f"{min_length:.0f}s, so auto mode will make {count}."
+                )
+    else:
+        count = requested
 
     required = count * min_length
     if required > duration + 0.2:
@@ -84,6 +133,16 @@ def select_clips(
         energy=energy,
         min_clip=min_length,
     )
+    if allowed_windows and settings.selection_mode == ClipSelectionMode.AUTO:
+        # Window edges are valid fallback cuts when only part of the source was
+        # transcribed; otherwise an energy-rich window can have no cut points.
+        extra = [
+            CutBoundary(round(boundary, 3), "window", 0.6)
+            for window in allowed_windows
+            for boundary in (window.start, window.end)
+            if 0.05 < boundary < duration - 0.05
+        ]
+        boundaries = _merge_boundaries([*boundaries, *extra], duration)
     if len(boundaries) < 2:
         raise SelectionError("No safe cut points could be found in this video.")
 
@@ -130,16 +189,37 @@ def select_clips(
             energy=energy,
         )
     else:
-        clips = _auto_plan(
-            duration=duration,
-            count=count,
-            min_length=min_length,
-            max_length=max_length,
-            boundaries=boundaries,
-            transcript=transcript,
-            scenes=scenes,
-            energy=energy,
-        )
+        try:
+            clips = _auto_plan(
+                duration=duration,
+                count=count,
+                min_length=min_length,
+                max_length=max_length,
+                boundaries=boundaries,
+                transcript=transcript,
+                scenes=scenes,
+                energy=energy,
+                allowed_windows=allowed_windows,
+            )
+        except SelectionError:
+            if not allowed_windows:
+                raise
+            # The partial-transcription windows could not supply enough valid
+            # cuts. Prefer a complete clip set over failing the whole job.
+            auto_warnings.append(
+                "Some highlights fell outside the transcribed sections; captions may be "
+                "missing on those clips."
+            )
+            clips = _auto_plan(
+                duration=duration,
+                count=count,
+                min_length=min_length,
+                max_length=max_length,
+                boundaries=boundaries,
+                transcript=transcript,
+                scenes=scenes,
+                energy=energy,
+            )
 
     if len(clips) != count:
         raise SelectionError(
@@ -152,7 +232,7 @@ def select_clips(
                 "minimum and maximum lengths and try again."
             )
     clips.sort(key=lambda clip: clip.start)
-    warnings: list[str] = []
+    warnings: list[str] = list(auto_warnings)
     if relaxed_warning:
         warnings.append(relaxed_warning)
     if not transcript.has_speech:
@@ -161,6 +241,89 @@ def select_clips(
             "and audio energy."
         )
     return SelectionResult(clips=clips, warnings=warnings, boundaries=boundaries)
+
+
+def _centered_window(center: float, length: float, duration: float) -> TranscriptionWindow:
+    length = min(duration, max(0.1, length))
+    start = max(0.0, min(duration - length, center - length / 2))
+    return TranscriptionWindow(start=round(start, 3), end=round(start + length, 3))
+
+
+def _merge_windows(
+    windows: list[TranscriptionWindow], *, gap: float = 0.5
+) -> list[TranscriptionWindow]:
+    ordered = sorted(windows, key=lambda window: window.start)
+    merged: list[TranscriptionWindow] = []
+    for window in ordered:
+        if merged and window.start <= merged[-1].end + gap:
+            merged[-1] = TranscriptionWindow(
+                start=merged[-1].start, end=max(merged[-1].end, window.end)
+            )
+        else:
+            merged.append(window)
+    return merged
+
+
+def plan_transcription_windows(
+    *,
+    duration: float,
+    settings: ClipSettings,
+    energy: EnergyProfile | None = None,
+    padding: float = 2.0,
+) -> list[TranscriptionWindow]:
+    """Return the smallest set of audio regions needed to plan and caption clips.
+
+    Even mode knows its target slots up front. Auto mode picks the highest-energy
+    windows first, so a 20-minute source requested as 3 x 60 s only sends ~3 minutes
+    of audio to Whisper. When the windows cover most of the source anyway, the
+    caller should just transcribe the whole file.
+    """
+
+    if duration <= 0:
+        return []
+    count = effective_clip_count(duration=duration, settings=settings)
+    min_length = max(1.0, float(settings.min_clip_seconds))
+    max_length = max(min_length, float(settings.max_clip_seconds))
+    padding = max(0.0, padding)
+
+    if settings.selection_mode == ClipSelectionMode.EVEN:
+        slot = duration / max(1, count)
+        core = min(max_length, max(min_length, slot))
+        length = min(duration, core + padding * 2)
+        windows = [
+            _centered_window((index + 0.5) * slot, length, duration) for index in range(count)
+        ]
+    else:
+        if energy is None or not energy.rms:
+            return [TranscriptionWindow(0.0, duration)]
+        ideal = duration / max(1, count * 2)
+        length = min(max_length, max(min_length, ideal)) + padding * 2
+        length = min(duration, max(min_length, length))
+        step = max(1.0, length / 2)
+        candidates: list[tuple[float, float, float]] = []
+        start = 0.0
+        while start + min_length <= duration + 0.01:
+            end = min(duration, start + length)
+            if end - start >= min_length:
+                candidates.append((energy.mean_energy(start, end), start, end))
+            start += step
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        chosen: list[TranscriptionWindow] = []
+        for _score, start, end in candidates:
+            if len(chosen) >= count:
+                break
+            if any(end > window.start + 0.5 and start < window.end - 0.5 for window in chosen):
+                continue
+            chosen.append(TranscriptionWindow(start=start, end=end))
+        if len(chosen) < count:
+            return [TranscriptionWindow(0.0, duration)]
+        windows = chosen
+
+    merged = _merge_windows(windows)
+    covered = sum(window.duration for window in merged)
+    if covered >= duration * _FULL_TRANSCRIPTION_COVERAGE:
+        return [TranscriptionWindow(0.0, duration)]
+    return merged
 
 
 def build_boundaries(
@@ -389,6 +552,7 @@ def _auto_plan(
     transcript: Transcript,
     scenes: list[float],
     energy: EnergyProfile | None,
+    allowed_windows: list[TranscriptionWindow] | None = None,
 ) -> list[ClipPlan]:
     candidates = _generate_candidates(
         duration=duration,
@@ -399,7 +563,21 @@ def _auto_plan(
         transcript=transcript,
         scenes=scenes,
         energy=energy,
+        allowed_windows=allowed_windows,
     )
+    if allowed_windows and not candidates:
+        # The windows were too tight for the requested length range; fall back
+        # to the whole timeline rather than failing the job.
+        candidates = _generate_candidates(
+            duration=duration,
+            count=count,
+            min_length=min_length,
+            max_length=max_length,
+            boundaries=boundaries,
+            transcript=transcript,
+            scenes=scenes,
+            energy=energy,
+        )
     if not candidates:
         raise SelectionError(
             "No highlight windows fit the requested length range. Try a shorter "
@@ -448,8 +626,17 @@ def _generate_candidates(
     transcript: Transcript,
     scenes: list[float],
     energy: EnergyProfile | None,
+    allowed_windows: list[TranscriptionWindow] | None = None,
 ) -> list[_Candidate]:
     times = [boundary.time for boundary in boundaries]
+
+    def in_allowed_window(start: float, end: float) -> bool:
+        if not allowed_windows:
+            return True
+        return any(
+            start >= window.start - 0.5 and end <= window.end + 0.5 for window in allowed_windows
+        )
+
     words = transcript.words
     word_starts = [word.start for word in words]
     word_ends = [word.end for word in words]
@@ -496,6 +683,8 @@ def _generate_candidates(
             length = end_time - start_time
             if length < min_length - _EPSILON or length > max_length + _EPSILON:
                 continue
+            if not in_allowed_window(start_time, end_time):
+                continue
             score, _density, speech_seconds = _score_window(
                 start_time,
                 end_time,
@@ -541,6 +730,8 @@ def _generate_candidates(
                 start_kind=clip.boundary_start,
                 end_kind=clip.boundary_end,
             )
+            if not in_allowed_window(clip.start, clip.end):
+                continue
             key = (round(clip.start, 2), round(clip.end, 2))
             candidates_by_key[key] = _Candidate(
                 start=clip.start,
