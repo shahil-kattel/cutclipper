@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import platform
 import re
+import sys
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -22,6 +24,34 @@ logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float, str], None]
 _SENTENCE_END_RE = re.compile(r"""[.!?…。！？]["'”’)\]]*$""")
+_BATCH_MIN_SECONDS = 4.0
+
+
+def _resolve_runtime(settings: Settings) -> tuple[str, str]:
+    """Pick the fastest available backend instead of CTranslate2's slow fallback.
+
+    CTranslate2's ``auto`` compute type resolves float16 to float32 on CPUs
+    that cannot run it, which is dramatically slower than int8. Apple Silicon
+    also exposes an experimental (but substantially faster) Metal backend.
+    """
+
+    device = (settings.whisper_device or "auto").strip().lower()
+    compute_type = (settings.whisper_compute_type or "auto").strip().lower()
+    if device in {"", "auto"}:
+        device = (
+            "mps"
+            if sys.platform == "darwin" and platform.machine().lower() in {"arm64", "aarch64"}
+            else "cpu"
+        )
+    if compute_type in {"", "auto"}:
+        compute_type = "float16" if device in {"mps", "cuda"} else "int8"
+    return device, compute_type
+
+
+def _batch_size(device: str) -> int:
+    if device == "cuda":
+        return 16
+    return 8
 
 
 @lru_cache(maxsize=4)
@@ -39,25 +69,59 @@ def _load_model(
             code="whisper_missing",
         ) from exc
 
-    logger.info(
-        "loading whisper model",
-        extra={"model": model_size, "device": device, "compute_type": compute_type},
-    )
-    kwargs: dict[str, Any] = {"device": device}
-    if compute_type != "auto":
-        kwargs["compute_type"] = compute_type
-    if cpu_threads > 0:
-        kwargs["cpu_threads"] = cpu_threads
-    try:
-        return WhisperModel(model_size, **kwargs)
-    except Exception as exc:
-        raise ProcessingError(
-            "The Whisper speech model could not be loaded. Check your internet connection "
-            "for the first-run model download, or set CUTCLIPPER_WHISPER_MODEL.",
-            code="whisper_load_failed",
-            retryable=True,
-            details={"error": str(exc)},
-        ) from exc
+    attempts: list[tuple[str, str]] = [(device, compute_type)]
+    if device != "cpu":
+        attempts.append(("cpu", "int8"))
+    if compute_type != "float32":
+        attempts.append(("cpu", "float32"))
+
+    last_error: Exception | None = None
+    for attempt_device, attempt_compute in dict.fromkeys(attempts):
+        logger.info(
+            "loading whisper model",
+            extra={
+                "model": model_size,
+                "device": attempt_device,
+                "compute_type": attempt_compute,
+            },
+        )
+        kwargs: dict[str, Any] = {
+            "device": attempt_device,
+            "compute_type": attempt_compute,
+        }
+        if cpu_threads > 0:
+            kwargs["cpu_threads"] = cpu_threads
+        try:
+            return WhisperModel(model_size, **kwargs)
+        except Exception as exc:  # try the next backend before failing the request
+            last_error = exc
+            logger.warning(
+                "whisper backend unavailable",
+                extra={
+                    "device": attempt_device,
+                    "compute_type": attempt_compute,
+                    "error": str(exc),
+                },
+            )
+    raise ProcessingError(
+        "The Whisper speech model could not be loaded. Check your internet connection "
+        "for the first-run model download, or set CUTCLIPPER_WHISPER_MODEL.",
+        code="whisper_load_failed",
+        retryable=True,
+        details={"error": str(last_error)},
+    ) from last_error
+
+
+@lru_cache(maxsize=4)
+def _batched_pipeline(
+    model_size: str,
+    device: str,
+    compute_type: str,
+    cpu_threads: int,
+) -> Any:
+    from faster_whisper import BatchedInferencePipeline
+
+    return BatchedInferencePipeline(_load_model(model_size, device, compute_type, cpu_threads))
 
 
 def _next_segment(iterator: Any) -> Any | None:
@@ -181,10 +245,14 @@ def _dedupe_words(words: list[Word], duration: float) -> list[Word]:
 _NEPALI_PROMPT = "यो नेपाली भाषामा बोलिएको कुराकानी हो।"
 
 
-def _transcribe_kwargs(settings: Settings, language: str | None) -> dict[str, Any]:
+def _transcribe_kwargs(
+    settings: Settings,
+    language: str | None,
+    beam_size: int | None = None,
+) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "language": language,
-        "beam_size": settings.whisper_beam_size,
+        "beam_size": beam_size or settings.whisper_beam_size,
         "word_timestamps": True,
         "vad_filter": True,
         "vad_parameters": {"min_silence_duration_ms": 450, "speech_pad_ms": 150},
@@ -196,6 +264,34 @@ def _transcribe_kwargs(settings: Settings, language: str | None) -> dict[str, An
     return kwargs
 
 
+def _start_engine(
+    model_size: str,
+    device: str,
+    compute_type: str,
+    cpu_threads: int,
+    audio_path: Path,
+    duration: float,
+    kwargs: dict[str, Any],
+) -> tuple[Any, Any]:
+    """Start a batched transcription when possible, with a sequential fallback."""
+
+    model = _load_model(model_size, device, compute_type, cpu_threads)
+    if duration >= _BATCH_MIN_SECONDS:
+        try:
+            pipeline = _batched_pipeline(model_size, device, compute_type, cpu_threads)
+            return pipeline.transcribe(
+                str(audio_path),
+                batch_size=_batch_size(device),
+                **kwargs,
+            )
+        except Exception as exc:
+            logger.warning(
+                "batched transcription unavailable; using sequential decoding",
+                extra={"error": str(exc)},
+            )
+    return model.transcribe(str(audio_path), **kwargs)
+
+
 async def transcribe_audio(
     audio_path: Path,
     duration: float,
@@ -205,6 +301,7 @@ async def transcribe_audio(
     on_progress: ProgressCallback | None = None,
     language: str | None = None,
     model_size: str | None = None,
+    beam_size: int | None = None,
 ) -> Transcript:
     """Transcribe an extracted WAV file, yielding to the event loop between segments."""
 
@@ -216,19 +313,22 @@ async def transcribe_audio(
     selected_model = model_size or (
         settings.nepali_whisper_model if selected_language == "ne" else settings.whisper_model
     )
-    model = await asyncio.to_thread(
-        _load_model,
-        selected_model,
-        settings.whisper_device,
-        settings.whisper_compute_type,
-        settings.whisper_cpu_threads,
-    )
+    device, compute_type = _resolve_runtime(settings)
     if cancel_event.is_set():
         raise JobCancelledError()
 
-    kwargs = _transcribe_kwargs(settings, selected_language)
+    kwargs = _transcribe_kwargs(settings, selected_language, beam_size)
     try:
-        iterator, info = await asyncio.to_thread(model.transcribe, str(audio_path), **kwargs)
+        iterator, info = await asyncio.to_thread(
+            _start_engine,
+            selected_model,
+            device,
+            compute_type,
+            settings.whisper_cpu_threads,
+            audio_path,
+            duration,
+            kwargs,
+        )
     except Exception as exc:
         raise ProcessingError(
             "Speech transcription could not start.",
@@ -301,6 +401,7 @@ async def transcribe_windows(
     on_progress: ProgressCallback | None = None,
     language: str | None = None,
     model_size: str | None = None,
+    beam_size: int | None = None,
 ) -> Transcript:
     """Transcribe only the requested audio windows and offset word timestamps.
 
@@ -327,6 +428,7 @@ async def transcribe_windows(
             on_progress=on_progress,
             language=language,
             model_size=model_size,
+            beam_size=beam_size,
         )
 
     selected_language = (
@@ -335,15 +437,9 @@ async def transcribe_windows(
     selected_model = model_size or (
         settings.nepali_whisper_model if selected_language == "ne" else settings.whisper_model
     )
+    device, compute_type = _resolve_runtime(settings)
     if on_progress:
         on_progress(0.01, "Loading the speech model")
-    model = await asyncio.to_thread(
-        _load_model,
-        selected_model,
-        settings.whisper_device,
-        settings.whisper_compute_type,
-        settings.whisper_cpu_threads,
-    )
     if cancel_event.is_set():
         raise JobCancelledError()
 
@@ -394,7 +490,14 @@ async def transcribe_windows(
                     details={"stderr": result.stderr[-1000:]},
                 )
             iterator, info = await asyncio.to_thread(
-                model.transcribe, str(clip_path), **_transcribe_kwargs(settings, selected_language)
+                _start_engine,
+                selected_model,
+                device,
+                compute_type,
+                settings.whisper_cpu_threads,
+                clip_path,
+                window_seconds,
+                _transcribe_kwargs(settings, selected_language, beam_size),
             )
             segments: list[Any] = []
             while True:

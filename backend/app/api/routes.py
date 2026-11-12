@@ -166,7 +166,7 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
     upload = await asyncio.to_thread(manager.uploads.load, payload.upload_id)
     language_key = payload.language or "auto"
     quality_key = payload.quality or "default"
-    cache_path = upload.path.parent / f"transcript_{language_key}_{quality_key}.json"
+    cache_path = upload.path.parent / f"transcript_v2_{language_key}_{quality_key}.json"
     if cache_path.exists() and not payload.force:
         try:
             cached = TranscriptResponse.model_validate_json(cache_path.read_text("utf-8"))
@@ -193,14 +193,16 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
 
     language = payload.language if payload.language not in {None, "auto"} else None
     if language == "ne":
-        quality_models = {"fast": "small", "balanced": "medium", "best": "large-v3"}
+        quality_models = {"fast": "small", "balanced": "small", "best": "medium"}
     else:
         quality_models = {
             "fast": settings.whisper_model,
             "balanced": "small",
             "best": "medium",
         }
+    quality_beams = {"fast": 1, "balanced": 3, "best": 5}
     model_size = quality_models.get(payload.quality) if payload.quality else None
+    beam_size = quality_beams.get(payload.quality) if payload.quality else None
     transcript = await transcribe_audio(
         audio_path,
         metadata.duration,
@@ -208,6 +210,7 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
         cancel_event=Event(),
         language=language,
         model_size=model_size,
+        beam_size=beam_size,
     )
     segments = build_caption_segments(transcript.words)
     warnings = list(transcript.warnings)
