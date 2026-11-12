@@ -1,0 +1,11 @@
+fastapi>=0.116,<1
+uvicorn[standard]>=0.35,<1
+pydantic>=2.11,<3
+pydantic-settings>=2.10,<3
+python-multipart>=0.0.20,<1
+httpx>=0.28,<1
+yt-dlp>=2025.10.22
+faster-whisper>=1.2,<2
+numpy>=1.26,<3
+opencv-python>=4.10,<5
+scenedetect>=0.7,<0.8
