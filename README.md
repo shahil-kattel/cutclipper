@@ -278,7 +278,8 @@ All settings use the `CUTCLIPPER_` prefix and can live in `.env` or the environm
 | `CUTCLIPPER_JOB_TTL_SECONDS` | `21600` | Temp job retention |
 | `CUTCLIPPER_CLEANUP_INTERVAL_SECONDS` | `1800` | Cleanup sweep cadence |
 | `CUTCLIPPER_MAX_CONCURRENT_JOBS` | `1` | Worker count |
-| `CUTCLIPPER_YTDLP_COOKIES_FILE` | unset | Optional cookies file for authenticated public links |
+| `CUTCLIPPER_YTDLP_COOKIES_FILE` | unset | Optional cookies.txt for authenticated links |
+| `CUTCLIPPER_YTDLP_COOKIES_FROM_BROWSER` | unset | Browser profile yt-dlp reads cookies from, e.g. `chrome` |
 | `CUTCLIPPER_FFMPEG_BINARY` | auto | Full path to a libass-capable FFmpeg |
 | `CUTCLIPPER_FFPROBE_BINARY` | auto | Full path to ffprobe |
 
@@ -367,7 +368,13 @@ Caption rendering, OpenCV face detection, and scene detection run on CPU. FFmpeg
 Your FFmpeg build lacks libass. Install `ffmpeg-full` on macOS or a distro FFmpeg with libass support. Set `CUTCLIPPER_FFMPEG_BINARY` and `CUTCLIPPER_FFPROBE_BINARY` to the matching binaries and restart.
 
 ### YouTube says the video requires sign-in
-Some videos need cookies or are age-gated. Export a Netscape-format cookies file from a browser session you control and set `CUTCLIPPER_YTDLP_COOKIES_FILE=/path/to/cookies.txt`. Public videos normally work without cookies. Keep yt-dlp current with `pip install -U yt-dlp`.
+Some videos are age-gated or need a signed-in session. Let yt-dlp reuse the cookies from a browser profile on this machine:
+
+```bash
+CUTCLIPPER_YTDLP_COOKIES_FROM_BROWSER=chrome   # or safari, firefox, edge…
+```
+
+Alternatively, export a Netscape-format `cookies.txt` from a signed-in browser and either drop it at `backend/data/cookies.txt` (no env var needed) or set `CUTCLIPPER_YTDLP_COOKIES_FILE=/path/to/cookies.txt`. Restart the backend after changing `.env`, and make sure the browser account can actually play the video. Cookies stay on your machine; CutClipper never uploads them. Public videos normally work without cookies. Keep yt-dlp current with `pip install -U yt-dlp`.
 
 ### A direct `.mp4` link fails
 CutClipper first tries a native HTTP probe/download and falls back to yt-dlp. If the host requires signed cookies, a special User-Agent, or blocks this server's region, download the file and use **Upload a file**, or host it somewhere public.

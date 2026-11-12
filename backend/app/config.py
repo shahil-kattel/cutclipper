@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     output_bitrate: str = "8M"
 
     ytdlp_cookies_file: str | None = None
+    # e.g. "chrome", "safari", "firefox", or "chrome:Profile 1". Read by yt-dlp
+    # from the browser profile on this machine; never uploaded anywhere.
+    ytdlp_cookies_from_browser: str | None = None
     ytdlp_extra_args: str = ""
     download_timeout_seconds: int = Field(default=900, ge=60)
     preview_timeout_seconds: int = Field(default=90, ge=15)

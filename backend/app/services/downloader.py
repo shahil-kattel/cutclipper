@@ -58,12 +58,72 @@ _AUTH_MARKERS = (
 )
 _GEO_MARKERS = ("not available in your country", "geo restricted", "geo-restricted")
 _UNSUPPORTED_MARKERS = ("unsupported url", "no suitable extractor", "no video formats found")
+_COOKIE_BROWSERS = (
+    "brave",
+    "chrome",
+    "chromium",
+    "edge",
+    "firefox",
+    "opera",
+    "safari",
+    "vivaldi",
+    "whale",
+)
 
 
 @dataclass(slots=True)
 class DownloadResult:
     path: Path
     title: str
+
+
+def _cookies_file(settings: Settings) -> Path | None:
+    """Explicit cookie file first, then the drop-in data/cookies.txt location."""
+
+    if settings.ytdlp_cookies_file:
+        return Path(settings.ytdlp_cookies_file).expanduser()
+    candidate = settings.data_dir / "cookies.txt"
+    return candidate if candidate.is_file() else None
+
+
+def _cookies_configured(settings: Settings) -> bool:
+    return bool(settings.ytdlp_cookies_from_browser or _cookies_file(settings))
+
+
+def _browser_name(spec: str) -> str:
+    return spec.strip().split("+", 1)[0].split(":", 1)[0].strip().lower()
+
+
+def validate_cookies_path(settings: Settings) -> None:
+    path = _cookies_file(settings)
+    if settings.ytdlp_cookies_file and (path is None or not path.is_file()):
+        raise URLValidationError(
+            "The configured yt-dlp cookies file does not exist.",
+            code="cookies_file_missing",
+        )
+    if settings.ytdlp_cookies_from_browser:
+        browser = _browser_name(settings.ytdlp_cookies_from_browser)
+        if browser not in _COOKIE_BROWSERS:
+            supported = ", ".join(_COOKIE_BROWSERS)
+            raise URLValidationError(
+                f"Unknown browser for CUTCLIPPER_YTDLP_COOKIES_FROM_BROWSER. "
+                f"Use one of: {supported}.",
+                code="cookies_browser_invalid",
+            )
+
+
+def _auth_required_message(*, cookies_configured: bool) -> str:
+    if cookies_configured:
+        return (
+            "This video needs an account that can watch it. Refresh your browser cookies "
+            "from a signed-in account (or replace cookies.txt), then retry — or upload "
+            "the video file."
+        )
+    return (
+        "This video needs a signed-in session (age or bot check). Set "
+        "CUTCLIPPER_YTDLP_COOKIES_FROM_BROWSER=chrome (or save cookies.txt in "
+        "backend/data/), restart, then retry — or upload the video file."
+    )
 
 
 def _base_command(settings: Settings) -> list[str]:
@@ -78,14 +138,23 @@ def _base_command(settings: Settings) -> list[str]:
     ]
     if shutil.which("node"):
         command.extend(["--js-runtimes", "node"])
-    if settings.ytdlp_cookies_file:
-        command.extend(["--cookies", settings.ytdlp_cookies_file])
+    validate_cookies_path(settings)
+    cookies_file = _cookies_file(settings)
+    if cookies_file is not None:
+        command.extend(["--cookies", str(cookies_file)])
+    elif settings.ytdlp_cookies_from_browser:
+        command.extend(["--cookies-from-browser", settings.ytdlp_cookies_from_browser.strip()])
     if settings.ytdlp_extra_args:
         command.extend(shlex.split(settings.ytdlp_extra_args))
     return command
 
 
-def _classify_error(stderr: str, *, action: str) -> MediaFetchError:
+def _classify_error(
+    stderr: str,
+    *,
+    action: str,
+    cookies_configured: bool = False,
+) -> MediaFetchError:
     message = (stderr or "").lower()
     if any(marker in message for marker in _PRIVATE_MARKERS):
         return MediaFetchError(
@@ -95,7 +164,7 @@ def _classify_error(stderr: str, *, action: str) -> MediaFetchError:
         )
     if any(marker in message for marker in _AUTH_MARKERS):
         return MediaFetchError(
-            "This video requires sign-in or age verification, so CutClipper can't download it.",
+            _auth_required_message(cookies_configured=cookies_configured),
             code="auth_required",
             retryable=False,
         )
@@ -562,7 +631,11 @@ async def fetch_metadata(url: str, settings: Settings) -> VideoMetadata:
                     metadata = metadata.model_copy(update={"thumbnail_url": generated})
             return metadata
 
-        last_error = _classify_error(result.stderr, action="fetch the video details")
+        last_error = _classify_error(
+            result.stderr,
+            action="fetch the video details",
+            cookies_configured=_cookies_configured(settings),
+        )
         if not last_error.retryable or attempt == 2:
             raise last_error
         delay = 1.5 * (attempt + 1)
@@ -657,7 +730,11 @@ async def _download_with_ytdlp(
             on_progress(1.0, "Video downloaded")
             return DownloadResult(path=files[0], title=files[0].stem)
 
-        last_error = _classify_error(result.stderr, action="download the video")
+        last_error = _classify_error(
+            result.stderr,
+            action="download the video",
+            cookies_configured=_cookies_configured(settings),
+        )
         if not last_error.retryable or attempt == 2:
             raise last_error
         delay = 2.0 * (attempt + 1)
@@ -710,11 +787,3 @@ def ytdlp_version() -> str:
         return importlib.metadata.version("yt-dlp")
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
-
-
-def validate_cookies_path(settings: Settings) -> None:
-    if settings.ytdlp_cookies_file and not Path(settings.ytdlp_cookies_file).is_file():
-        raise URLValidationError(
-            "The configured yt-dlp cookies file does not exist.",
-            code="cookies_file_missing",
-        )
