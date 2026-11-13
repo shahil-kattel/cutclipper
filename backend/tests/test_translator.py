@@ -114,3 +114,56 @@ async def test_llm_translation_is_preferred(monkeypatch: pytest.MonkeyPatch, tmp
     )
     assert result.engine == "llm"
     assert result.segments[0].text == "EN 0"
+
+
+@pytest.mark.asyncio
+async def test_english_lines_are_kept_and_only_nepali_lines_are_translated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    async def fake_llm(segments, settings):
+        return [
+            CaptionSegment(start=segment.start, end=segment.end, text=f"EN {index}")
+            for index, segment in enumerate(segments)
+        ]
+
+    monkeypatch.setattr(translator, "_translate_with_llm", fake_llm)
+    segments = [
+        CaptionSegment(start=0.0, end=1.0, text="Hello world", language="en"),
+        CaptionSegment(start=1.0, end=2.0, text="नमस्ते", language="ne"),
+        CaptionSegment(start=2.0, end=3.0, text="YouTube SSD", language="en"),
+    ]
+    result = await translator.translate_caption_segments(
+        segments,
+        audio_path=tmp_path / "audio.wav",
+        duration=3.0,
+        settings=Settings(translation_api_url="http://example.test/v1/chat/completions"),
+        quality=None,
+        language="ne",
+        cache_dir=tmp_path,
+    )
+    assert [item.text for item in result.segments] == ["Hello world", "EN 0", "YouTube SSD"]
+
+
+@pytest.mark.asyncio
+async def test_all_english_lines_skip_transcription(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    async def fail_transcribe(*args, **kwargs):
+        raise AssertionError("An English-only track must not be transcribed")
+
+    monkeypatch.setattr(translator, "transcribe_audio", fail_transcribe)
+    segments = [
+        CaptionSegment(start=0.0, end=1.0, text="Hello world", language="en"),
+        CaptionSegment(start=1.0, end=2.0, text="YouTube SSD", language="en"),
+    ]
+    result = await translator.translate_caption_segments(
+        segments,
+        audio_path=tmp_path / "audio.wav",
+        duration=2.0,
+        settings=Settings(translation_api_url=None),
+        quality=None,
+        language="en",
+        cache_dir=tmp_path,
+    )
+    assert result.segments == segments
+    assert result.warnings

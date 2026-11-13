@@ -122,6 +122,10 @@ export interface CaptionSegment {
   start: number
   end: number
   text: string
+  /** Exact spoken-word timings, when the transcript supplied them. */
+  words?: TranscriptWord[]
+  /** Script-based line language: Nepali, English, or a code-mixed line. */
+  language?: 'ne' | 'en' | 'mixed' | null
 }
 
 export interface TranscriptWord {

@@ -26,6 +26,7 @@ import type {
   ExportResolution,
   PreviewResponse,
   TranscriptResponse,
+  TranscriptWord,
   TranscriptionQuality,
   TranscriptionTask,
 } from '../types/api'
@@ -92,22 +93,17 @@ const EXPORT_QUALITIES: Array<{ value: ExportQuality; label: string; detail: str
   { value: 'lossless', label: 'Lossless', detail: 'No compression' },
 ]
 
-function qualityOptionsFor(
-  language: string,
-): Array<{ value: TranscriptionQuality; label: string; detail: string }> {
-  return language === 'ne'
-    ? [
-        { value: 'fast', label: 'Fast', detail: 'small · quick' },
-        { value: 'balanced', label: 'Balanced', detail: 'medium' },
-        { value: 'best', label: 'Best', detail: 'Nepali-tuned' },
-        { value: 'maximum', label: 'Maximum', detail: 'tuned · 5' },
-      ]
-    : [
-        { value: 'fast', label: 'Fast', detail: 'base' },
-        { value: 'balanced', label: 'Balanced', detail: 'small' },
-        { value: 'best', label: 'Best', detail: 'medium' },
-        { value: 'maximum', label: 'Maximum', detail: 'large-v3' },
-      ]
+function qualityOptionsFor(): Array<{
+  value: TranscriptionQuality
+  label: string
+  detail: string
+}> {
+  return [
+    { value: 'fast', label: 'Fast', detail: 'base' },
+    { value: 'balanced', label: 'Balanced', detail: 'small' },
+    { value: 'best', label: 'Best', detail: 'medium' },
+    { value: 'maximum', label: 'Maximum', detail: 'large-v3' },
+  ]
 }
 
 function formatTimecode(value: number): string {
@@ -115,6 +111,74 @@ function formatTimecode(value: number): string {
   const seconds = Math.floor(value % 60)
   const tenths = Math.floor((value % 1) * 10)
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${tenths}`
+}
+
+const DEVANAGARI_RE = /[ऀ-ॿ]/
+
+function captionLanguage(text: string): CaptionSegment['language'] {
+  const devanagari = DEVANAGARI_RE.test(text)
+  const latin = /[A-Za-z]/.test(text)
+  if (devanagari && latin) return 'mixed'
+  if (devanagari) return 'ne'
+  if (latin) return 'en'
+  return null
+}
+
+function tokensOf(text: string): string[] {
+  return text.split(/\s+/).filter(Boolean)
+}
+
+/** Keep exact word timings when a text edit only changes spelling/case. */
+function retimeWordsForText(
+  words: TranscriptWord[] | undefined,
+  text: string,
+): TranscriptWord[] | undefined {
+  if (!words?.length) return undefined
+  const tokens = tokensOf(text)
+  if (tokens.length !== words.length) return undefined
+  return words.map((word, index) => ({ ...word, text: tokens[index] ?? word.text }))
+}
+
+/** Scale existing word timings when the user moves a line's start or end. */
+function scaleWords(
+  words: TranscriptWord[] | undefined,
+  oldStart: number,
+  oldEnd: number,
+  newStart: number,
+  newEnd: number,
+): TranscriptWord[] | undefined {
+  if (!words?.length) return undefined
+  const oldSpan = Math.max(0.01, oldEnd - oldStart)
+  const newSpan = Math.max(0.01, newEnd - newStart)
+  return words.map((word) => {
+    const start = newStart + ((word.start - oldStart) / oldSpan) * newSpan
+    const end = newStart + ((word.end - oldStart) / oldSpan) * newSpan
+    return {
+      ...word,
+      start: Math.max(newStart, start),
+      end: Math.min(newEnd, Math.max(start + 0.01, end)),
+    }
+  })
+}
+
+function applySegmentPatch(
+  segment: CaptionSegment,
+  patch: Partial<CaptionSegment>,
+): CaptionSegment {
+  let words = segment.words
+  if (patch.text !== undefined) {
+    words = retimeWordsForText(segment.words, patch.text)
+  }
+  const next: CaptionSegment = {
+    ...segment,
+    ...patch,
+    words,
+    language: captionLanguage(patch.text ?? segment.text),
+  }
+  if (patch.start !== undefined || patch.end !== undefined) {
+    next.words = scaleWords(next.words, segment.start, segment.end, next.start, next.end)
+  }
+  return next
 }
 
 export function CaptionStep({
@@ -167,6 +231,7 @@ export function CaptionStep({
   const activeIndex = segments.findIndex(
     (segment) => currentTime >= segment.start - 0.02 && currentTime < segment.end,
   )
+  const nepaliMode = language === 'ne' || transcript?.language === 'ne'
   const sourceLabel =
     transcript?.language === 'ne' || language === 'ne'
       ? 'नेपाली'
@@ -174,7 +239,7 @@ export function CaptionStep({
 
   const updateSegment = (index: number, patch: Partial<CaptionSegment>) => {
     const next = segments.map((segment, position) =>
-      position === index ? { ...segment, ...patch } : segment,
+      position === index ? applySegmentPatch(segment, patch) : segment,
     )
     onSegmentsChange(next)
   }
@@ -188,10 +253,19 @@ export function CaptionStep({
     const current = segments[index]
     const next = segments[index + 1]
     if (!current || !next) return
+    const text = `${current.text} ${next.text}`.trim()
+    const mergedWords =
+      current.words?.length &&
+      next.words?.length &&
+      current.words.length + next.words.length === tokensOf(text).length
+        ? [...current.words, ...next.words]
+        : undefined
     const merged: CaptionSegment = {
       start: current.start,
       end: Math.max(current.end, next.end),
-      text: `${current.text} ${next.text}`.trim(),
+      text,
+      words: mergedWords,
+      language: captionLanguage(text),
     }
     onSegmentsChange([...segments.slice(0, index), merged, ...segments.slice(index + 2)])
   }
@@ -209,10 +283,41 @@ export function CaptionStep({
     const splitIndex = Math.min(words.length - 1, Math.max(1, Math.round(words.length * ratio)))
     const left = words.slice(0, splitIndex).join(' ')
     const right = words.slice(splitIndex).join(' ')
+    const splitWords =
+      current.words?.length === words.length
+        ? {
+            left: current.words.slice(0, splitIndex).map((word, sliceIndex) => ({
+              ...word,
+              end:
+                sliceIndex === splitIndex - 1
+                  ? Math.min(word.end, Math.max(word.start + 0.01, splitAt))
+                  : word.end,
+            })),
+            right: current.words.slice(splitIndex).map((word, sliceIndex) => ({
+              ...word,
+              start:
+                sliceIndex === 0
+                  ? Math.max(word.start, Math.min(splitAt, word.end - 0.01))
+                  : word.start,
+            })),
+          }
+        : null
     onSegmentsChange([
       ...segments.slice(0, index),
-      { start: current.start, end: splitAt, text: left },
-      { start: splitAt, end: current.end, text: right },
+      {
+        start: current.start,
+        end: splitAt,
+        text: left,
+        words: splitWords?.left,
+        language: captionLanguage(left),
+      },
+      {
+        start: splitAt,
+        end: current.end,
+        text: right,
+        words: splitWords?.right,
+        language: captionLanguage(right),
+      },
       ...segments.slice(index + 1),
     ])
   }
@@ -523,7 +628,7 @@ export function CaptionStep({
                 <LoaderCircle className="h-6 w-6 animate-spin text-tomato" aria-hidden="true" />
                 <p className="text-sm font-medium text-ink">Listening for speech…</p>
                 <p className="max-w-sm text-[12px] leading-5 text-ink-soft">
-                  {language === 'ne'
+                  {nepaliMode
                     ? 'Nepali uses a larger Whisper model, so the first run can take a little longer.'
                     : 'The first run downloads the speech model once, then transcription is much faster.'}
                 </p>
@@ -710,27 +815,33 @@ export function CaptionStep({
                   <p className="mb-1.5 text-[11.5px] font-medium text-ink-soft">
                     Transcription accuracy
                   </p>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {qualityOptionsFor(language).map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        aria-pressed={quality === option.value}
-                        onClick={() => onQualityChange(option.value)}
-                        className={cn(
-                          'rounded-lg border px-1.5 py-1.5 text-[10.5px] font-medium transition',
-                          quality === option.value
-                            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
-                            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
-                        )}
-                      >
-                        {option.label}
-                        <span className="mt-0.5 block text-[8px] uppercase tracking-[0.1em] text-ink-faint">
-                          {option.detail}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                  {nepaliMode ? (
+                    <div className="flex h-[2.65rem] items-center justify-center rounded-lg border-[1.5px] border-ink bg-mustard-soft px-2 text-center text-[10.5px] font-semibold text-ink shadow-[2px_2px_0_#211d19]">
+                      Accurate · Nepali fine-tuned model
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {qualityOptionsFor().map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-pressed={quality === option.value}
+                          onClick={() => onQualityChange(option.value)}
+                          className={cn(
+                            'rounded-lg border px-1.5 py-1.5 text-[10.5px] font-medium transition',
+                            quality === option.value
+                              ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                              : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                          )}
+                        >
+                          {option.label}
+                          <span className="mt-0.5 block text-[8px] uppercase tracking-[0.1em] text-ink-faint">
+                            {option.detail}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink/20 bg-paper-soft px-3 py-2.5">
@@ -764,8 +875,8 @@ export function CaptionStep({
                   ? 'English translation ready. Edit any line below before rendering; the selected animations are applied to the English captions.'
                   : task === 'translate'
                     ? 'One-pass translation replaces the current lines with English. To keep the Nepali lines and add English as a second animated track, use Caption language above.'
-                    : language === 'ne'
-                      ? 'Choosing नेपाली switches to Best (a Nepali fine-tuned Whisper model) for near-perfect accuracy. English words mixed into the speech stay in Latin script while Nepali stays in Devanagari. Fast and Balanced use vanilla Whisper and are noticeably less exact; Maximum adds beam search. The first Best run downloads about 1.5 GB.'
+                    : nepaliMode
+                      ? 'All Nepali captions use the Nepali fine-tuned Whisper model — smaller vanilla models are never used. English words mixed into the speech stay in Latin script while Nepali stays in Devanagari. The first run downloads about 1.5 GB.'
                       : transcript?.language
                         ? `Detected: ${transcript.language.toUpperCase()}. Fast / balanced / best map to base / small / medium.`
                         : 'Fast / balanced / best map to base / small / medium. Balanced is a good default.'}

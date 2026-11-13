@@ -341,12 +341,11 @@ Nepali and must not trigger a language warning on their own:
 - **लेकिन** and **बहुत** are understood and used in Nepali, though तर and धेरै
   are the standard/native choices. Treat them as weak evidence, not proof.
 
-Current `_HINDI_MARKERS` includes गए, रहे, रही, बहुत, and लेकिन. Because the
-warning fires at **3+ hits and ≥2% token density**, a legitimate Nepali
-transcript can cross the threshold on shared forms alone. Recommended fix:
-remove गए, रहे, रही, बहुत, and लेकिन from the marker set, or assign them a lower
-weight than है/हैं/था/थी/थे/हुआ/हुई/हुए/किया/गया/गयी/होगा/सबने/अभी/कितना.
-Keep the density check; code-mixed Nepali can contain a few genuine Hindi words.
+The Hindi warning fires at **3+ hits and ≥2% token density**. The marker set
+now excludes गए, रहे, रही, बहुत, and लेकिन because they are valid or common in
+Nepali; keep the density check, since code-mixed Nepali can contain a few
+genuine Hindi words. Strong markers such as है/हैं/था/थी/थे/हुआ/हुई/हुए/किया/
+गया/गयी/होगा/सबने/अभी/कितना remain.
 
 ### Parallel examples
 
@@ -451,10 +450,11 @@ Case-suffix gaps:
 - **Suffix stripping is greedy.** A glossary word that legitimately ends in a
   suffix-like string must be a direct key (direct lookup runs first). Audit new
   entries for this.
-- **Mixed-script rendering.** Ensure the selected Devanagari font also covers
-  Latin (the bundled Mukta, Noto Sans Devanagari, Hind, Kalam, Rajdhani, Tiro,
-  and Yatra One all declare `latin`), otherwise a Latin stem in a Devanagari
-  caption can fall back to a different face.
+- **Mixed-script rendering.** The renderer picks the font per caption group:
+  Latin-only groups keep the user's chosen face, and groups with Devanagari use
+  the selected face only if it supports Devanagari, otherwise a bundled
+  Devanagari fallback such as Mukta. Bundled Devanagari faces also contain
+  Latin glyphs for mixed words like `GBदेखि`.
 - **Spelling consistency.** Use तपाईं (anusvara) consistently; the current
   `_NEPALI_WORD_CORRECTIONS` maps तव्य → तपाईँ (chandrabindu), while the UI and
   README use तपाईं. Both are valid, but pick one.
@@ -491,9 +491,17 @@ Use these as ASR/translation smoke tests.
 - Language codes and detection: `backend/app/api/routes.py` (`ne`, `hi`, `en`).
 - Nepali models, prompt, chunking, warnings, punctuation and spelling rules:
   `backend/app/services/transcriber.py`.
+- Word-level timing: `CaptionSegment.words` carries the ASR's exact word times;
+  `words_from_segments` uses them when the line still has the same token count
+  and otherwise distributes time by syllable weight (`app/pipeline/timing.py`).
+- Script tagging: `build_caption_segments` labels each line `ne`, `en`, or
+  `mixed`; `build_ass` keeps the requested font for Latin-only groups and uses
+  a Devanagari fallback only for groups that contain Devanagari.
 - Devanagari → Latin glossary: `backend/assets/nepali-english-terms.json` and
   `_english_term_for` in the transcriber.
 - Nepali → English translation prompt: `backend/app/services/translator.py`.
+  English-only lines are kept unchanged; only Nepali and mixed lines are sent
+  through translation.
 - Dual-track burned captions and danda/spacing cleanup:
   `backend/app/pipeline/captions.py`.
 - Devanagari caption fonts: `frontend/src/lib/captionFonts.json`

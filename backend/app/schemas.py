@@ -232,12 +232,39 @@ class CaptionSettings(BaseModel):
         return self
 
 
+class CaptionWord(BaseModel):
+    """One spoken word inside a caption line, in absolute source time."""
+
+    start: float = Field(ge=0, le=86_400)
+    end: float = Field(ge=0, le=86_400)
+    text: str = Field(min_length=1, max_length=200)
+
+    @field_validator("text")
+    @classmethod
+    def clean_text(cls, value: str) -> str:
+        cleaned = " ".join(value.replace("\r", " ").replace("\n", " ").split()).strip()
+        if not cleaned:
+            raise ValueError("Caption word text cannot be empty.")
+        return cleaned
+
+    @model_validator(mode="after")
+    def valid_range(self) -> CaptionWord:
+        if self.end <= self.start:
+            raise ValueError("Caption word end time must be after its start time.")
+        return self
+
+
 class CaptionSegment(BaseModel):
     """A user-editable caption line with absolute source timing."""
 
     start: float = Field(ge=0, le=86_400)
     end: float = Field(ge=0, le=86_400)
     text: str = Field(min_length=1, max_length=1000)
+    # Exact word timings are optional: the ASR fills them when available, the
+    # editor keeps them in sync, and the renderer falls back to a weighted
+    # split when a line has been rewritten.
+    words: list[CaptionWord] | None = Field(default=None, max_length=200)
+    language: Literal["ne", "en", "mixed"] | None = None
 
     @field_validator("text")
     @classmethod
@@ -246,6 +273,13 @@ class CaptionSegment(BaseModel):
         if not cleaned:
             raise ValueError("Caption text cannot be empty.")
         return cleaned
+
+    @field_validator("words")
+    @classmethod
+    def ordered_words(cls, value: list[CaptionWord] | None) -> list[CaptionWord] | None:
+        if not value:
+            return None
+        return sorted(value, key=lambda item: (item.start, item.end))
 
     @model_validator(mode="after")
     def valid_range(self) -> CaptionSegment:

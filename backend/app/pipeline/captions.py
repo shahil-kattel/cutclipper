@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.caption_fonts import font_spec
+from app.pipeline.timing import text_timing_weight
 from app.pipeline.types import CaptionRenderResult, Word
 from app.schemas import (
     CaptionFontStyle,
@@ -15,6 +17,7 @@ from app.schemas import (
     CaptionSettings,
     CaptionStyle,
     CaptionTextCase,
+    CaptionWord,
 )
 
 _SAFE_SIDE_FRACTION = 0.095
@@ -595,6 +598,26 @@ def _caption_font_for(refs: list[_WordRef], requested: str) -> str:
     return requested
 
 
+def _group_caption_font(refs: list[_WordRef], requested: str, fallback: str) -> str:
+    """Pick a font for one caption group without changing the whole track.
+
+    A mixed-language file can have English-only lines and Devanagari lines.
+    Keeping the requested font for Latin groups and using a Devanagari-capable
+    fallback only for the groups that need it preserves the user's typeface
+    instead of silently switching the entire export to Mukta.
+    """
+
+    if not any(_DEVANAGARI_RE.search(ref.text) for ref in refs):
+        return requested
+    selected = font_spec(requested)
+    if selected is not None and "devanagari" in selected.scripts:
+        return requested
+    preferred = font_spec(fallback)
+    if preferred is not None and "devanagari" in preferred.scripts:
+        return fallback
+    return "Mukta"
+
+
 def _clip_refs(
     words: list[Word],
     *,
@@ -721,7 +744,10 @@ def build_ass(
     word_style = settings.word_style
     line_style = settings.line_style
     separator = _separator(word_spacing, letter_spacing)
-    caption_font = _caption_font_for(refs, settings.font)
+    # The style carries the user's requested face. Devanagari groups override
+    # it inline when that face cannot shape them, so English-only lines keep
+    # the chosen typeface instead of the whole track switching to Mukta.
+    caption_font = settings.font
     secondary_font_size = max(1, round(font_size * _SECONDARY_SIZE_RATIO))
     secondary_font = (
         _caption_font_for(secondary_refs, settings.secondary_font) if secondary_refs else ""
@@ -790,13 +816,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
         hold_end = min(clip_duration, group.end + 0.16, max(group.end, next_start - 0.01))
         flat_words = [word for line in group.lines for word in line]
+        group_font = _group_caption_font(flat_words, settings.font, settings.secondary_font)
+        font_tag = "" if group_font == caption_font else f"{{\\fn{group_font}}}"
         secondary_prefix, secondary_lines = _secondary_line_prefix(
             group,
             secondary_refs,
             font_size=secondary_font_size,
             target_width=width,
             secondary_font=secondary_font,
-            primary_font=caption_font,
+            primary_font=group_font,
             primary_font_size=font_size,
         )
         leading_height = secondary_lines * secondary_font_size * 1.2
@@ -844,7 +872,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     _active_word_index(flat_words, reveal),
                     reveal_before=reveal,
                 )
-                add_event(reveal, end, secondary_prefix + text, tag=position_tag)
+                add_event(reveal, end, secondary_prefix + text, tag=font_tag + position_tag)
         elif word_style is not None:
             for word_index, word in enumerate(flat_words):
                 start = word.start
@@ -883,7 +911,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     start,
                     end,
                     secondary_prefix + style_text(group, word_index),
-                    tag=_word_event_entrance_tag(
+                    tag=font_tag
+                    + _word_event_entrance_tag(
                         line_style,
                         elapsed=elapsed,
                         x=x,
@@ -898,7 +927,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 group.start,
                 hold_end,
                 secondary_prefix + text,
-                tag=_group_entrance_tag(
+                tag=font_tag
+                + _group_entrance_tag(
                     line_style,
                     x=x,
                     y=y,
@@ -914,6 +944,26 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         event_count=len(events),
         word_count=len(refs),
     )
+
+
+def _caption_language(text: str) -> str | None:
+    """Classify a line by the scripts it visibly contains.
+
+    This is intentionally script-based, not a language-identification model:
+    English words in a Nepali sentence are Latin, while Nepali stays in
+    Devanagari. A line with both is tagged "mixed" so the UI and renderer can
+    keep each script in a font that shapes it correctly.
+    """
+
+    devanagari = len(_DEVANAGARI_RE.findall(text))
+    latin = sum(1 for char in text if char.isascii() and char.isalpha())
+    if devanagari and latin:
+        return "mixed"
+    if devanagari:
+        return "ne"
+    if latin:
+        return "en"
+    return None
 
 
 def build_caption_segments(
@@ -937,6 +987,15 @@ def build_caption_segments(
                     start=round(start, 3),
                     end=round(max(start + 0.05, current[-1].end), 3),
                     text=text,
+                    words=[
+                        CaptionWord(
+                            start=round(word.start, 3),
+                            end=round(word.end, 3),
+                            text=word.text,
+                        )
+                        for word in current
+                    ],
+                    language=_caption_language(text),  # type: ignore[arg-type]
                 )
             )
         current = []
@@ -962,19 +1021,32 @@ def build_caption_segments(
 
 
 def words_from_segments(segments: list[CaptionSegment]) -> list[Word]:
-    """Rebuild word timings for user-edited captions so ASS animation still works."""
+    """Rebuild word timings for user-edited captions so ASS animation still works.
+
+    When a segment carries the ASR's exact word timings and its text still has
+    the same number of tokens, those timings are used unchanged. An edited
+    line without usable timings falls back to a syllable-weighted split.
+    """
 
     words: list[Word] = []
     for segment in segments:
         parts = [part for part in segment.text.split() if part]
         if not parts:
             continue
+        timed = _words_from_timed_segment(segment, parts)
+        if timed is not None:
+            words.extend(timed)
+            continue
         span = max(0.02, segment.end - segment.start)
-        weights = [max(1, len(part)) for part in parts]
-        total_weight = sum(weights)
+        weights = [text_timing_weight(part) for part in parts]
+        total_weight = sum(weights) or float(len(parts))
         cursor = segment.start
-        for index, (part, weight) in enumerate(zip(parts, weights, strict=True)):
-            end = segment.end if index == len(parts) - 1 else cursor + span * weight / total_weight
+        for index, part in enumerate(parts):
+            end = (
+                segment.end
+                if index + 1 == len(parts)
+                else cursor + span * weights[index] / total_weight
+            )
             words.append(
                 Word(
                     start=round(cursor, 3),
@@ -984,6 +1056,30 @@ def words_from_segments(segments: list[CaptionSegment]) -> list[Word]:
             )
             cursor = end
     return words
+
+
+def _words_from_timed_segment(
+    segment: CaptionSegment,
+    parts: list[str],
+) -> list[Word] | None:
+    """Return exact word timings when they still describe the edited line."""
+
+    if not segment.words or len(segment.words) != len(parts):
+        return None
+    timed = sorted(segment.words, key=lambda word: (word.start, word.end))
+    result: list[Word] = []
+    for word, text in zip(timed, parts, strict=True):
+        start = max(segment.start, min(segment.end, word.start))
+        end = max(start + 0.01, min(segment.end, word.end))
+        if end <= start:
+            return None
+        result.append(Word(start=round(start, 3), end=round(end, 3), text=text))
+    # Guard against a stale or malformed client payload; the weighted split is
+    # better than emitting overlapping karaoke events.
+    for previous, current in itertools.pairwise(result):
+        if current.start < previous.start - 0.001:
+            return None
+    return result
 
 
 def safe_caption_y(position: CaptionPosition, height: int) -> int:

@@ -57,7 +57,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div
         aria-live="polite"
         aria-atomic="false"
-        className="pointer-events-none fixed inset-x-4 bottom-4 z-[80] flex flex-col items-end gap-2 sm:bottom-6 sm:left-auto sm:right-6 sm:max-w-sm"
+        className="pointer-events-none fixed inset-x-4 bottom-4 z-[80] flex flex-col items-stretch gap-2 sm:bottom-6 sm:left-auto sm:right-6 sm:max-w-sm sm:items-end"
       >
         <AnimatePresence initial={false}>
           {items.map((item) => (

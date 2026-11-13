@@ -558,12 +558,12 @@ class JobManager:
         record: JobRecord,
         *text_sources: str,
     ) -> None:
-        """Never burn Devanagari text with a Latin-only font.
+        """Keep the requested face and let the renderer choose a per-group fallback.
 
-        The check follows the text itself rather than the detected language
-        code: Hindi audio is also Devanagari, and auto-detection can label
-        Nepali speech as Hindi. If any caption text needs Devanagari, the
-        exported captions use Mukta unless the chosen font already supports it.
+        ``build_ass`` switches only the caption groups that actually contain
+        Devanagari to a Devanagari-capable fallback. Switching the whole track
+        here would take the user's chosen Latin face away from English-only
+        lines in the same mixed-language video.
         """
 
         captions = record.settings.captions
@@ -574,17 +574,10 @@ class JobManager:
         spec = font_spec(captions.font)
         if spec is not None and "devanagari" in spec.scripts:
             return
-        record.settings = record.settings.model_copy(
-            update={
-                "captions": captions.model_copy(update={"font": "Mukta"}),
-            }
-        )
-        self._update(
-            record,
-            warnings=[
-                f"Devanagari caption text was detected, so the caption font was switched "
-                f"from {captions.font} to Mukta for correct Nepali rendering."
-            ],
+        # No mutation: the per-group fallback in build_ass handles shaping.
+        logger.debug(
+            "Devanagari text will use a per-group fallback font",
+            extra={"font": captions.font, "fallback": "Mukta"},
         )
 
     def _ensure_segment_caption_font(

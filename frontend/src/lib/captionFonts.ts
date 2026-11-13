@@ -64,6 +64,24 @@ export function supportsDevanagari(name: string): boolean {
   return captionFontOption(name).scripts.includes('devanagari')
 }
 
+const DEVANAGARI_RE = /[ऀ-ॿ]/
+
+/**
+ * Keep the user's chosen face for Latin-only lines, and fall back only for a
+ * line that actually contains Devanagari. This mirrors the per-group font
+ * choice in the ASS renderer.
+ */
+export function captionFontForText(name: string, text: string): string {
+  if (!DEVANAGARI_RE.test(text) || supportsDevanagari(name)) return name
+  return (
+    CAPTION_FONT_OPTIONS.find(
+      (font) => font.name === 'Mukta' && font.scripts.includes('devanagari'),
+    )?.name ??
+    CAPTION_FONT_OPTIONS.find((font) => font.scripts.includes('devanagari'))?.name ??
+    name
+  )
+}
+
 let facesInstalled = false
 
 export function installCaptionFontFaces(): void {

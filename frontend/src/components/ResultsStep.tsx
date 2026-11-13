@@ -118,7 +118,7 @@ export function ResultsStep({
             </span>
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="grid w-full grid-cols-2 gap-2.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center lg:justify-end">
           {!editingCaptions ? (
             <Button
               variant="secondary"
@@ -144,7 +144,7 @@ export function ResultsStep({
             href={primaryUrl}
             download={captionMode ? primaryClip?.filename : 'cutclipper-clips.zip'}
             onClick={handleDownloadAll}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border-[1.5px] border-ink bg-tomato px-4 text-[12.5px] font-semibold text-paper-soft shadow-[3px_4px_0_#211d19] transition hover:-translate-y-0.5 hover:bg-tomato-bright hover:shadow-[4px_5px_0_#211d19] active:translate-y-[3px] active:shadow-none"
+            className="col-span-2 inline-flex h-10 items-center justify-center gap-2 rounded-xl border-[1.5px] border-ink bg-tomato px-4 text-[12.5px] font-semibold text-paper-soft shadow-[3px_4px_0_#211d19] transition hover:-translate-y-0.5 hover:bg-tomato-bright hover:shadow-[4px_5px_0_#211d19] active:translate-y-[3px] active:shadow-none sm:col-span-1"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             {captionMode ? 'Download video' : 'Download all'}

@@ -42,9 +42,10 @@ class Settings(BaseSettings):
     max_concurrent_jobs: int = Field(default=1, ge=1, le=4)
 
     whisper_model: str = "base"
-    # Nepali is served by vanilla Whisper medium for Fast/Balanced.
-    nepali_whisper_model: str = "medium"
-    # Best/Maximum use this Nepali fine-tune (OpenSLR, ~1.5 GB on first run).
+    # Vanilla fallback for Nepali→English translation only. Nepali caption
+    # transcription always uses the fine-tuned model below.
+    nepali_whisper_model: str = "large-v3"
+    # Every Nepali caption uses this fine-tune (OpenSLR, ~1.5 GB first run).
     # It is substantially closer to exact than vanilla large-v3 for Nepali.
     # Set to an empty string to fall back to the vanilla large-v3 tiers.
     nepali_accurate_whisper_model: str = "Dragneel/whisper-medium-nepali-openslr-ct2"

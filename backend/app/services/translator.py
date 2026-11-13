@@ -19,6 +19,24 @@ from app.services.transcriber import transcribe_audio
 logger = logging.getLogger(__name__)
 
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+
+
+def _needs_translation(text: str) -> bool:
+    """English-only lines are already subtitles; translating them is wrong."""
+
+    return bool(_DEVANAGARI_RE.search(text))
+
+
+def _merge_translated(
+    segments: list[CaptionSegment],
+    indices: list[int],
+    translated: list[CaptionSegment],
+) -> list[CaptionSegment]:
+    merged = list(segments)
+    for index, item in zip(indices, translated, strict=False):
+        merged[index] = item
+    return merged
 
 
 @dataclass(slots=True)
@@ -206,9 +224,32 @@ async def translate_caption_segments(
 ) -> TranslationResult:
     """Translate lines to English, keeping the original subtitle timings."""
 
-    llm = await _translate_with_llm(segments, settings)
+    indices = [index for index, segment in enumerate(segments) if _needs_translation(segment.text)]
+    if not indices:
+        return TranslationResult(
+            segments=list(segments),
+            engine="llm" if (settings.translation_api_url or "").strip() else "whisper",
+            warnings=[
+                "Every caption line is already in English; the English track was left unchanged."
+            ],
+        )
+    source_segments = [segments[index] for index in indices]
+
+    llm = await _translate_with_llm(source_segments, settings)
     if llm:
-        return TranslationResult(segments=llm, engine="llm")
+        translated = [
+            CaptionSegment(
+                start=segment.start,
+                end=segment.end,
+                text=segment.text,
+                language="en",
+            )
+            for segment in llm
+        ]
+        return TranslationResult(
+            segments=_merge_translated(segments, indices, translated),
+            engine="llm",
+        )
 
     cache_path = cache_dir / f"translation_v1_{language}_{quality or 'default'}.json"
     downloaded = _read_cached_words(cache_path)
@@ -245,31 +286,53 @@ async def translate_caption_segments(
     else:
         words, sentences = downloaded
 
-    aligned = align_translation(segments, words, sentences)
+    aligned = align_translation(source_segments, words, sentences)
     warnings: list[str] = []
     if settings.translation_api_url:
         warnings.append(
             "The configured translation endpoint was unavailable; Whisper's English pass was "
             "used instead."
         )
-    if len(aligned) < max(1, len(segments) // 2):
+    if len(aligned) < max(1, len(source_segments) // 2):
         # Word alignment could not cover the edited lines; fall back to the
-        # English pass's own segmentation and explain the timing change.
-        fallback = build_caption_segments(words, max_words=10, max_seconds=8.0)  # type: ignore[arg-type]
-        if fallback:
-            warnings.append(
-                "The English pass could not align to every edited line; line timings were rebuilt "
-                "from the audio."
-            )
-            return TranslationResult(segments=fallback, engine="whisper", warnings=warnings)
+        # English pass's own segmentation and explain the timing change. Only
+        # do this when every line needed translation; otherwise the fallback
+        # would take the already-English lines out of the track.
+        if len(indices) == len(segments):
+            fallback = build_caption_segments(words, max_words=10, max_seconds=8.0)  # type: ignore[arg-type]
+            if fallback:
+                warnings.append(
+                    "The English pass could not align to every edited line; line timings were rebuilt "
+                    "from the audio."
+                )
+                return TranslationResult(segments=fallback, engine="whisper", warnings=warnings)
         warnings.append(
-            "No English speech was detected in the audio. Configure an LLM translation endpoint "
-            "to translate edited Nepali text."
+            "The English pass could not align to every edited Nepali line. The original lines "
+            "were kept where alignment failed."
         )
-        return TranslationResult(segments=[], engine="whisper", warnings=warnings)
+        return TranslationResult(
+            segments=_merge_translated(segments, indices, aligned),
+            engine="whisper",
+            warnings=warnings,
+        )
 
+    normalized = [
+        CaptionSegment(
+            start=segment.start,
+            end=segment.end,
+            text=segment.text,
+            language="en",
+        )
+        for segment in aligned
+    ]
     warnings.append(
         "English came from Whisper's audio translation. Configure "
         "CUTCLIPPER_TRANSLATION_API_URL to translate edited Nepali lines exactly."
     )
-    return TranslationResult(segments=aligned, engine="whisper", warnings=warnings)
+    merged = list(segments)
+    aligned_by_start = {round(segment.start, 3): segment for segment in normalized}
+    for index in indices:
+        replacement = aligned_by_start.get(round(segments[index].start, 3))
+        if replacement is not None:
+            merged[index] = replacement
+    return TranslationResult(segments=merged, engine="whisper", warnings=warnings)

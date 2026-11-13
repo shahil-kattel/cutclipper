@@ -21,6 +21,7 @@ from app.schemas import (
     CaptionSettings,
     CaptionStyle,
     CaptionTextCase,
+    CaptionWord,
     CreateJobRequest,
     JobMode,
     TranscribeRequest,
@@ -216,6 +217,76 @@ def test_words_from_segments_preserve_edited_caption_timing() -> None:
     assert words[0].start == pytest.approx(1.0)
     assert words[-1].end == pytest.approx(5.0)
     assert all(word.end > word.start for word in words)
+
+
+def test_build_caption_segments_keeps_exact_word_timings_and_script() -> None:
+    words = [
+        Word(0.2, 0.55, "नमस्ते"),
+        Word(0.6, 0.9, "साथी"),
+        Word(0.95, 1.4, "YouTube"),
+    ]
+    segments = build_caption_segments(words)
+    assert len(segments) == 1
+    segment = segments[0]
+    assert segment.language == "mixed"
+    assert segment.words is not None
+    assert [word.text for word in segment.words] == ["नमस्ते", "साथी", "YouTube"]
+    assert [(word.start, word.end) for word in segment.words] == [
+        (0.2, 0.55),
+        (0.6, 0.9),
+        (0.95, 1.4),
+    ]
+
+
+def test_words_from_segments_prefers_exact_word_timings() -> None:
+    segment = CaptionSegment(
+        start=0.5,
+        end=3.0,
+        text="नमस्ते साथी",
+        words=[
+            CaptionWord(start=0.6, end=0.9, text="नमस्ते"),
+            CaptionWord(start=2.2, end=2.8, text="साथी"),
+        ],
+        language="ne",
+    )
+    words = words_from_segments([segment])
+    assert [(word.start, word.end, word.text) for word in words] == [
+        (0.6, 0.9, "नमस्ते"),
+        (2.2, 2.8, "साथी"),
+    ]
+
+
+def test_words_from_segments_falls_back_when_edit_changes_token_count() -> None:
+    segment = CaptionSegment(
+        start=0.0,
+        end=2.0,
+        text="नमस्ते साथी हो",
+        words=[
+            CaptionWord(start=0.1, end=0.5, text="नमस्ते"),
+            CaptionWord(start=0.6, end=1.0, text="साथी"),
+        ],
+    )
+    words = words_from_segments([segment])
+    assert [word.text for word in words] == ["नमस्ते", "साथी", "हो"]
+    assert words[-1].end == pytest.approx(2.0)
+    assert all(word.end > word.start for word in words)
+
+
+def test_mixed_script_groups_use_the_fallback_font_only_where_needed(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "mixed.ass"
+    build_ass(
+        [Word(0.2, 0.6, "Hello"), Word(0.7, 1.2, "नमस्ते")],
+        clip_start=0,
+        clip_duration=2,
+        settings=CaptionSettings(word_style=CaptionStyle.KARAOKE, font="Inter"),
+        output_size=(1080, 1920),
+        output_path=output,
+    )
+    text = output.read_text(encoding="utf-8")
+    assert "Style: CutClipper,Inter,80" in text
+    assert "{\\fnMukta}" in text
 
 
 def test_nepali_caption_segments_correct_common_asr_mistakes() -> None:
@@ -593,8 +664,8 @@ def test_devanagari_text_falls_back_to_a_devanagari_font(tmp_path: Path) -> None
         output_path=output,
     )
     text = output.read_text(encoding="utf-8")
-    assert "Style: CutClipper,Mukta,80" in text
-    assert "Style: CutClipper,Inter,80" not in text
+    assert "Style: CutClipper,Inter,80" in text
+    assert "{\\fnMukta}" in text
 
 
 def test_latin_text_keeps_the_requested_font(tmp_path: Path) -> None:

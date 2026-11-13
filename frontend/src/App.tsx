@@ -232,7 +232,10 @@ function AppContent() {
         setCaptionTranslation(null)
         setCaptionView('source')
         const translated = response.translated === true || task === 'translate'
-        if (language === 'ne' && !translated) {
+        // Auto-detection can return Nepali even when the user left the language
+        // on "Detect language". Switch the editor to a Devanagari face in that
+        // case too, not only when नेपाली was chosen explicitly.
+        if (!translated && (language === 'ne' || response.language === 'ne')) {
           setCaptionSettings((current) =>
             DEVANAGARI_FONTS.has(current.font) ? current : { ...current, font: 'Mukta' },
           )
@@ -670,7 +673,7 @@ function AppContent() {
         />
         <main
           id="main"
-          className={`mx-auto w-full flex-1 px-4 sm:px-6 lg:px-8 ${
+          className={`mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 lg:px-8 ${
             step === 'link' ? 'pb-20 pt-9 sm:pt-14' : 'pb-16 pt-7 sm:pt-10'
           }`}
         >
@@ -826,41 +829,43 @@ function AppContent() {
 
 function SiteFooter() {
   return (
-    <footer className="relative z-10 px-4 pb-8 pt-4 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl border-t-[1.5px] border-dashed border-ink/30 pt-5">
-        <div className="flex flex-col items-start justify-between gap-4 text-[10.5px] text-ink-soft sm:flex-row sm:items-center">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <BrandMark className="h-7 w-7 rounded-lg shadow-[1px_2px_0_#211d19]" />
-            <span className="font-display text-[14px] font-semibold tracking-[-0.01em] text-ink">
-              CutClipper
-            </span>
-            <span className="hidden h-3 w-px bg-ink/20 sm:block" />
-            <span className="font-hand text-[15px] text-ink-soft">
-              long videos, short attention spans
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
-              Temp files auto-delete
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
-              No accounts. No watermarks.
-            </span>
-            <a
-              href="https://github.com/shahil-kattel/cutclipper"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-paper-soft px-2.5 py-1 font-semibold text-ink shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-mustard-soft"
-            >
-              <Code2 className="h-3 w-3" aria-hidden="true" />
-              GitHub
-            </a>
-            <span className="inline-flex items-center gap-1 font-hand text-[15px]">
-              made with <Heart className="h-3 w-3 fill-tomato text-tomato" aria-hidden="true" /> on
-              paper
-            </span>
+    <footer className="relative z-10 pb-8 pt-4">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="border-t-[1.5px] border-dashed border-ink/30 pt-5">
+          <div className="flex flex-col items-start justify-between gap-4 text-[10.5px] text-ink-soft sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <BrandMark className="h-7 w-7 rounded-lg shadow-[1px_2px_0_#211d19]" />
+              <span className="font-display text-[14px] font-semibold tracking-[-0.01em] text-ink">
+                CutClipper
+              </span>
+              <span className="hidden h-3 w-px bg-ink/20 sm:block" />
+              <span className="font-hand text-[15px] text-ink-soft">
+                long videos, short attention spans
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <span className="inline-flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
+                Temp files auto-delete
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
+                No accounts. No watermarks.
+              </span>
+              <a
+                href="https://github.com/shahil-kattel/cutclipper"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-paper-soft px-2.5 py-1 font-semibold text-ink shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-mustard-soft"
+              >
+                <Code2 className="h-3 w-3" aria-hidden="true" />
+                GitHub
+              </a>
+              <span className="inline-flex items-center gap-1 font-hand text-[15px]">
+                made with <Heart className="h-3 w-3 fill-tomato text-tomato" aria-hidden="true" /> on
+                paper
+              </span>
+            </div>
           </div>
         </div>
       </div>

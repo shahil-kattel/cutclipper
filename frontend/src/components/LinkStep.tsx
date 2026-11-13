@@ -150,7 +150,7 @@ export function LinkStep({
   const empty = touched && !url.trim()
 
   return (
-    <div className="relative mx-auto max-w-5xl">
+    <div className="relative mx-auto max-w-7xl">
       <motion.div
         initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}

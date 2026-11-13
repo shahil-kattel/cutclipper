@@ -62,20 +62,13 @@ const CAPTION_LANGUAGES = [
   { value: 'hi', label: 'हिन्दी · Hindi' },
 ]
 
-function captionQualityOptions(language: string) {
-  return language === 'ne'
-    ? [
-        { value: 'fast' as const, label: 'Fast', detail: 'small · quick' },
-        { value: 'balanced' as const, label: 'Balanced', detail: 'medium' },
-        { value: 'best' as const, label: 'Best', detail: 'Nepali-tuned' },
-        { value: 'maximum' as const, label: 'Maximum', detail: 'tuned · 5' },
-      ]
-    : [
-        { value: 'fast' as const, label: 'Fast', detail: 'base' },
-        { value: 'balanced' as const, label: 'Balanced', detail: 'small' },
-        { value: 'best' as const, label: 'Best', detail: 'medium' },
-        { value: 'maximum' as const, label: 'Maximum', detail: 'large-v3' },
-      ]
+function captionQualityOptions() {
+  return [
+    { value: 'fast' as const, label: 'Fast', detail: 'base' },
+    { value: 'balanced' as const, label: 'Balanced', detail: 'small' },
+    { value: 'best' as const, label: 'Best', detail: 'medium' },
+    { value: 'maximum' as const, label: 'Maximum', detail: 'large-v3' },
+  ]
 }
 
 const REFRAME_MODES: Array<{
@@ -646,27 +639,33 @@ export function SettingsStep({
                       <p className="mb-1.5 text-[11.5px] font-medium text-ink-soft">
                         Transcription accuracy
                       </p>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {captionQualityOptions(captionLanguage).map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            aria-pressed={captionQuality === option.value}
-                            onClick={() => onCaptionQualityChange(option.value)}
-                            className={cn(
-                              'rounded-lg border px-1.5 py-1.5 text-[10.5px] font-medium transition',
-                              captionQuality === option.value
-                                ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
-                                : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
-                            )}
-                          >
-                            {option.label}
-                            <span className="mt-0.5 block text-[8px] uppercase tracking-[0.1em] text-ink-faint">
-                              {option.detail}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+                      {captionLanguage === 'ne' ? (
+                        <div className="flex h-[2.65rem] items-center justify-center rounded-lg border-[1.5px] border-ink bg-mustard-soft px-2 text-center text-[10.5px] font-semibold text-ink shadow-[2px_2px_0_#211d19]">
+                          Accurate · Nepali fine-tuned model
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                          {captionQualityOptions().map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              aria-pressed={captionQuality === option.value}
+                              onClick={() => onCaptionQualityChange(option.value)}
+                              className={cn(
+                                'rounded-lg border px-1.5 py-1.5 text-[10.5px] font-medium transition',
+                                captionQuality === option.value
+                                  ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                                  : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                              )}
+                            >
+                              {option.label}
+                              <span className="mt-0.5 block text-[8px] uppercase tracking-[0.1em] text-ink-faint">
+                                {option.detail}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-ink/20 bg-paper-soft px-3 py-2.5">
@@ -689,8 +688,8 @@ export function SettingsStep({
                     {translateCaptions
                       ? 'Whisper translates the spoken audio to English in one pass; the selected style below is applied to the English captions.'
                       : captionLanguage === 'ne'
-                        ? 'Choosing नेपाली switches to Best (a Nepali fine-tuned Whisper model) for near-perfect accuracy; English words mixed into the speech stay in Latin script while Nepali stays in Devanagari. Fast and Balanced use vanilla Whisper and are less exact, and Maximum adds beam search. The first Best run downloads about 1.5 GB. If auto-detect picks Hindi for accented Nepali, choose नेपाली explicitly. You can edit and translate lines in the Caption studio before rendering.'
-                        : 'Pick नेपाली for dedicated Nepali models. Best and Maximum are the most accurate options; Balanced uses medium.'}
+                        ? 'All Nepali captions use the Nepali fine-tuned Whisper model — smaller vanilla models are never used. English words mixed into the speech stay in Latin script while Nepali stays in Devanagari. The first run downloads about 1.5 GB. If auto-detect picks Hindi for accented Nepali, choose नेपाली explicitly. You can edit and translate lines in the Caption studio before rendering.'
+                        : 'Nepali is detected automatically and always uses the fine-tuned model. For other languages, Fast / Balanced / Best map to base / small / medium.'}
                   </p>
                 </div>
                 <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import type { CaptionSegment, CaptionSettings, CaptionStyle, TranscriptWord } from '../types/api'
 import {
+  captionFontForText,
   captionFontOption,
   captionFontStack,
   captionFontStyle,
@@ -120,9 +121,12 @@ function resolveTimeline(
   if (segments?.length) {
     const segment = segments.find((item) => time >= item.start - 0.02 && time < item.end)
     if (!segment) return null
-    const matchingWords = sourceWords.filter(
-      (word) => word.end > segment.start + 0.01 && word.start < segment.end - 0.01,
-    )
+    const timedWords = segment.words?.length
+      ? segment.words
+      : sourceWords.filter(
+          (word) => word.end > segment.start + 0.01 && word.start < segment.end - 0.01,
+        )
+    const matchingWords = timedWords
     const editedTokens = segment.text.split(/\s+/).filter(Boolean)
     const textMatches =
       matchingWords.length > 0 &&
@@ -260,7 +264,9 @@ export function CaptionPreview({
     return <div ref={ownRef} className={overlayClass} aria-hidden="true" />
   }
 
-  const font = captionFontOption(settings.font)
+  const font = captionFontOption(
+    captionFontForText(settings.font, group?.words.map((word) => word.text).join(' ') ?? ''),
+  )
   const secondaryFont = captionFontOption(settings.secondary_font ?? 'Mukta')
   const resolvedFontSize =
     fontSize ??

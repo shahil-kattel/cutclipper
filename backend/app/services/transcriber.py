@@ -20,6 +20,7 @@ from typing import Any
 
 from app.config import Settings
 from app.core.errors import JobCancelledError, ProcessingError
+from app.pipeline.timing import clamp_word_end, text_timing_weight
 from app.pipeline.types import Sentence, Transcript, Word
 from app.services.media import get_media_tools
 from app.services.process import run_process
@@ -284,7 +285,9 @@ def _english_term_for(word: str) -> str | None:
 
 
 def _correct_nepali_word(text: str) -> str:
-    stripped = text.strip("।॥,;:!?\"'()[]{}")
+    # Decoder word tokens usually start with a space (" प्रोफेसनल"), while
+    # caption segments are split on whitespace. Strip both before lookup.
+    stripped = text.strip(" \t\r\n।॥,;:!?\"'()[]{}")
     if not stripped:
         return text
     corrected = _NEPALI_WORD_CORRECTIONS.get(stripped, stripped)
@@ -443,16 +446,31 @@ def _build_words(segments: list[Any], duration: float) -> list[Word]:
             parts = [part for part in text.split() if "�" not in part]
             if not parts:
                 continue
-            step = (end - start) / len(parts)
-            for i, part in enumerate(parts):
+            # No word timestamps: split the segment by syllable weight instead
+            # of length. This keeps long Devanagari words on screen longer
+            # than short particles when a line has to be distributed.
+            weights = [text_timing_weight(part) for part in parts]
+            total_weight = sum(weights) or float(len(parts))
+            cursor = start
+            span = end - start
+            for index, part in enumerate(parts):
+                step = span * weights[index] / total_weight
+                word_end = end if index + 1 == len(parts) else cursor + step
                 words.append(
                     Word(
-                        start=round(start + i * step, 3),
-                        end=round(start + (i + 1) * step, 3),
+                        start=round(cursor, 3),
+                        end=round(max(cursor + 0.01, word_end), 3),
                         text=_correct_nepali_word(part),
                     )
                 )
+                cursor = word_end
     words.sort(key=lambda word: (word.start, word.end))
+    # The fine-tune occasionally assigns a runaway duration to the final word
+    # of a window. Cap each word by its text length and by the next word's
+    # start before the overlap filter runs.
+    for index, word in enumerate(words):
+        next_start = words[index + 1].start if index + 1 < len(words) else None
+        word.end = round(clamp_word_end(word.text, word.start, word.end, next_start), 3)
     return _dedupe_words(words, duration)
 
 
@@ -499,15 +517,12 @@ _HINDI_MARKERS = frozenset(
         "हुई",
         "हुए",
         "रहा",
-        "रही",
-        "रहे",
         "करना",
         "करता",
         "करती",
         "करते",
         "गया",
         "गयी",
-        "गए",
         "किया",
         "दिया",
         "लिया",
@@ -516,8 +531,6 @@ _HINDI_MARKERS = frozenset(
         "था",
         "थी",
         "थे",
-        "बहुत",
-        "लेकिन",
         "अभी",
         "सबने",
         "होता",
@@ -537,7 +550,6 @@ _QUALITY_MODELS_NE = {
 _QUALITY_BEAMS = {"fast": 1, "balanced": 3, "best": 5, "maximum": 5}
 # Maximum spends extra beam search on the most precise Nepali model.
 _NEPALI_BEAMS = {"fast": 1, "balanced": 5, "best": 5, "maximum": 10}
-_NEPALI_ACCURATE_QUALITIES = frozenset({"best", "maximum"})
 # The fine-tuned model was trained on short utterances. Long files are
 # transcribed in short, overlapping windows so it cannot drop a clause at
 # Whisper's 30-second boundary.
@@ -590,13 +602,14 @@ def _model_for(
     settings: Settings,
 ) -> str:
     if language == "ne":
-        if quality in _NEPALI_ACCURATE_QUALITIES:
-            accurate = _accurate_nepali_model(settings)
-            if accurate:
-                return accurate
-        if quality in _QUALITY_MODELS_NE:
-            return _QUALITY_MODELS_NE[quality]
-        return settings.nepali_whisper_model
+        # Nepali captions always use the fine-tuned model. The smaller vanilla
+        # tiers are not accurate enough to be offered as an alternative.
+        accurate = _accurate_nepali_model(settings)
+        if accurate:
+            return accurate
+        # If the fine-tune was explicitly disabled, use the strongest vanilla
+        # model rather than silently dropping to small/medium.
+        return "large-v3"
     if quality == "fast":
         return settings.whisper_model
     if quality == "balanced":
@@ -664,11 +677,10 @@ def _transcribe_kwargs(
             }
         )
         if accurate:
-            # The fine-tuned model's word-level alignment is unstable and can
-            # stall or emit truncated tokens at segment boundaries. Segment
-            # timestamps are reliable; _build_words distributes the words
-            # inside each segment so captions keep their timing.
-            kwargs["word_timestamps"] = False
+            # Word timestamps are reliable inside the short overlapping
+            # windows used for this model. _build_words caps a runaway final
+            # word at a window edge instead of dropping all word timing.
+            kwargs["word_timestamps"] = True
         if task == "transcribe" and not accurate:
             kwargs["initial_prompt"] = _NEPALI_PROMPT
             hotwords = settings.nepali_hotwords.strip()
@@ -1045,8 +1057,7 @@ async def transcribe_audio(
         raise JobCancelledError()
 
     kwargs = _transcribe_kwargs(settings, selected_language, selected_beam, task, selected_model)
-    model_fallback_warning: str | None = None
-    if _is_nepali_accurate_model(selected_model, settings) and duration > _ACCURATE_CHUNK_SECONDS:
+    if _is_nepali_accurate_model(selected_model, settings):
         try:
             return await _transcribe_accurate_chunks(
                 audio_path,
@@ -1064,24 +1075,15 @@ async def transcribe_audio(
         except Exception as exc:
             if cancel_event.is_set():
                 raise JobCancelledError() from exc
-            fallback_model = settings.nepali_whisper_model
-            logger.warning(
-                "accurate Nepali chunking failed; using fallback",
-                extra={"model": selected_model, "fallback": fallback_model, "error": str(exc)},
-            )
-            selected_model = fallback_model
-            selected_beam = beam_size or _beam_for_model(
-                quality, settings, selected_language, selected_model
-            )
-            device, compute_type = _resolve_runtime_for_model(selected_model, settings)
-            kwargs = _transcribe_kwargs(
-                settings, selected_language, selected_beam, task, selected_model
-            )
-            model_fallback_warning = (
-                "The Nepali fine-tuned model could not complete this file, so the transcript "
-                f"used {fallback_model} instead. Check your connection and re-transcribe for "
-                "the most accurate result."
-            )
+            raise ProcessingError(
+                "The Nepali fine-tuned model could not transcribe this file. Nepali "
+                "captions are only generated with this accurate model; check your "
+                "connection and try again.",
+                code="nepali_model_failed",
+                retryable=True,
+                details={"model": selected_model, "error": str(exc)},
+            ) from exc
+
     try:
         engine = await asyncio.to_thread(
             _start_engine,
@@ -1094,49 +1096,12 @@ async def transcribe_audio(
             kwargs,
         )
     except Exception as exc:
-        if _is_nepali_accurate_model(selected_model, settings) and not cancel_event.is_set():
-            # A first-run download, network hiccup, or incompatible backend
-            # must not fail the whole job. Fall back to the configured Nepali
-            # model and tell the user the transcript used a less exact model.
-            fallback_model = settings.nepali_whisper_model
-            logger.warning(
-                "accurate Nepali model unavailable; using fallback",
-                extra={"model": selected_model, "fallback": fallback_model, "error": str(exc)},
-            )
-            selected_model = fallback_model
-            kwargs = _transcribe_kwargs(
-                settings, selected_language, selected_beam, task, selected_model
-            )
-            model_fallback_warning = (
-                "The Nepali fine-tuned model could not be loaded, so the transcript used "
-                f"{fallback_model} instead. Check your connection and re-transcribe for the "
-                "most accurate result."
-            )
-            try:
-                engine = await asyncio.to_thread(
-                    _start_engine,
-                    selected_model,
-                    device,
-                    compute_type,
-                    settings.whisper_cpu_threads,
-                    audio_path,
-                    duration,
-                    kwargs,
-                )
-            except Exception as fallback_exc:
-                raise ProcessingError(
-                    "Speech transcription could not start.",
-                    code="transcription_failed",
-                    retryable=True,
-                    details={"error": str(fallback_exc)},
-                ) from fallback_exc
-        else:
-            raise ProcessingError(
-                "Speech transcription could not start.",
-                code="transcription_failed",
-                retryable=True,
-                details={"error": str(exc)},
-            ) from exc
+        raise ProcessingError(
+            "Speech transcription could not start.",
+            code="transcription_failed",
+            retryable=True,
+            details={"error": str(exc)},
+        ) from exc
 
     segments: list[Any] = []
     if on_progress:
@@ -1228,8 +1193,6 @@ async def transcribe_audio(
     words = _build_words(segments, duration)
     sentences = build_sentences(words)
     warnings: list[str] = []
-    if model_fallback_warning:
-        warnings.append(model_fallback_warning)
     language_warning = _nepali_language_warning(words, selected_language)
     if language_warning:
         warnings.append(language_warning)
@@ -1322,31 +1285,6 @@ async def transcribe_windows(
         on_progress(0.03, "Loading the speech model")
     if cancel_event.is_set():
         raise JobCancelledError()
-    model_fallback_warning: str | None = None
-    if _is_nepali_accurate_model(selected_model, settings):
-        try:
-            await asyncio.to_thread(
-                _load_model,
-                selected_model,
-                device,
-                compute_type,
-                settings.whisper_cpu_threads,
-            )
-        except Exception as exc:
-            if cancel_event.is_set():
-                raise JobCancelledError() from exc
-            fallback_model = settings.nepali_whisper_model
-            logger.warning(
-                "accurate Nepali model unavailable for windowed transcription",
-                extra={"model": selected_model, "fallback": fallback_model, "error": str(exc)},
-            )
-            selected_model = fallback_model
-            model_fallback_warning = (
-                "The Nepali fine-tuned model could not be loaded, so the transcript used "
-                f"{fallback_model} instead. Check your connection and re-transcribe for the "
-                "most accurate result."
-            )
-
     tools = get_media_tools(settings)
     work_dir = audio_path.parent / "transcribe-windows"
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -1356,8 +1294,6 @@ async def transcribe_windows(
     detected_language: str | None = None
     language_probability: float | None = None
     warnings: list[str] = []
-    if model_fallback_warning:
-        warnings.append(model_fallback_warning)
 
     for index, (start, end) in enumerate(bounds):
         if cancel_event.is_set():
@@ -1398,6 +1334,65 @@ async def transcribe_windows(
             window_kwargs = _transcribe_kwargs(
                 settings, selected_language, selected_beam, task, selected_model
             )
+            if _is_nepali_accurate_model(selected_model, settings):
+
+                def sub_progress(
+                    fraction: float,
+                    message: str,
+                    *,
+                    index: int = index,
+                    completed_seconds: float = completed_seconds,
+                    window_seconds: float = window_seconds,
+                    total_seconds: float = total_seconds,
+                    sections: int = len(bounds),
+                ) -> None:
+                    if on_progress and total_seconds > 0:
+                        completed = completed_seconds + window_seconds * fraction
+                        on_progress(
+                            min(0.97, 0.04 + 0.92 * completed / total_seconds),
+                            f"Transcribing section {index + 1} of {sections}",
+                        )
+
+                try:
+                    sub = await _transcribe_accurate_chunks(
+                        clip_path,
+                        window_seconds,
+                        settings,
+                        cancel_event=cancel_event,
+                        on_progress=sub_progress,
+                        model_size=selected_model,
+                        device=device,
+                        compute_type=compute_type,
+                        kwargs=window_kwargs,
+                    )
+                except JobCancelledError:
+                    raise
+                except Exception as exc:
+                    raise ProcessingError(
+                        "The Nepali fine-tuned model could not transcribe a highlight section.",
+                        code="nepali_model_failed",
+                        retryable=True,
+                        details={"section": index + 1, "error": str(exc)},
+                    ) from exc
+                if detected_language is None:
+                    detected_language = sub.language
+                    language_probability = sub.language_probability
+                for word in sub.words:
+                    words.append(
+                        Word(
+                            start=round(min(duration, word.start + start), 3),
+                            end=round(min(duration, word.end + start), 3),
+                            text=word.text,
+                            probability=word.probability,
+                        )
+                    )
+                completed_seconds += window_seconds
+                if on_progress and total_seconds > 0:
+                    on_progress(
+                        min(0.97, 0.04 + 0.92 * completed_seconds / total_seconds),
+                        f"Transcribed section {index + 1} of {len(bounds)}",
+                    )
+                continue
             engine = await asyncio.to_thread(
                 _start_engine,
                 selected_model,

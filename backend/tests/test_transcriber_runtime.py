@@ -69,20 +69,18 @@ def test_accurate_chunks_overlap_and_cover_the_audio() -> None:
         assert previous_end - next_start == pytest.approx(3.0)
 
 
-def test_nepali_quality_ladder_prioritises_accuracy() -> None:
+def test_every_nepali_quality_tier_uses_the_accurate_model() -> None:
     settings = Settings()
-    assert transcriber._model_for("ne", "fast", settings) == "small"
-    assert transcriber._model_for("ne", "balanced", settings) == "medium"
-    assert transcriber._model_for("ne", "best", settings) == (
-        "Dragneel/whisper-medium-nepali-openslr-ct2"
-    )
+    accurate = "Dragneel/whisper-medium-nepali-openslr-ct2"
+    for quality in ("fast", "balanced", "best", "maximum", None):
+        assert transcriber._model_for("ne", quality, settings) == accurate
     assert transcriber._beam_for("balanced", settings, "ne") == 5
 
 
 def test_vanilla_tiers_return_when_accurate_model_is_unset() -> None:
     settings = Settings(nepali_accurate_whisper_model="")
-    assert transcriber._model_for("ne", "best", settings) == "large-v3"
-    assert transcriber._model_for("ne", "maximum", settings) == "large-v3"
+    for quality in ("fast", "balanced", "best", "maximum", None):
+        assert transcriber._model_for("ne", quality, settings) == "large-v3"
 
 
 def test_accurate_nepali_model_skips_the_prompt_and_uses_short_fallback() -> None:
@@ -92,7 +90,7 @@ def test_accurate_nepali_model_skips_the_prompt_and_uses_short_fallback() -> Non
     assert "initial_prompt" not in kwargs
     assert "hotwords" not in kwargs
     assert kwargs["temperature"] == 0.0
-    assert kwargs["word_timestamps"] is False
+    assert kwargs["word_timestamps"] is True
 
     vanilla = transcriber._transcribe_kwargs(settings, "ne", beam_size=5, model_size="large-v3")
     assert "initial_prompt" in vanilla
@@ -139,6 +137,32 @@ def test_broken_utf8_word_fragments_are_dropped() -> None:
     assert [word.text for word in words] == ["नमस्ते"]
 
 
+def test_runaway_word_timestamp_is_capped_without_losing_words() -> None:
+    segments = [
+        SimpleNamespace(
+            start=0.0,
+            end=30.0,
+            text="छिटो प्रभावकारी चैँ",
+            words=[
+                SimpleNamespace(start=0.0, end=0.8, word="छिटो", probability=1.0),
+                SimpleNamespace(start=0.8, end=1.6, word="प्रभावकारी", probability=1.0),
+                SimpleNamespace(start=1.6, end=30.0, word="चैँ", probability=1.0),
+            ],
+        )
+    ]
+    words = transcriber._build_words(segments, 30.0)
+    assert [word.text for word in words] == ["छिटो", "प्रभावकारी", "चैँ"]
+    assert words[-1].end <= words[-1].start + 1.0
+
+
+def test_wordless_segment_distributes_time_by_syllable_weight() -> None:
+    segments = [SimpleNamespace(start=0.0, end=2.0, text="छिटो प्रभावकारी", words=None)]
+    words = transcriber._build_words(segments, 2.0)
+    assert [word.text for word in words] == ["छिटो", "प्रभावकारी"]
+    assert words[1].end - words[1].start > words[0].end - words[0].start
+    assert words[-1].end == pytest.approx(2.0)
+
+
 def test_nepali_text_normalisation_cleans_danda_and_zero_width() -> None:
     assert transcriber._normalize_word("नमस्ते​|") == "नमस्ते।"
     assert transcriber._join_words(["नमस्ते", "।", "संसार"]) == "नमस्ते। संसार"
@@ -171,6 +195,7 @@ def test_english_words_become_latin_while_nepali_stays_devanagari() -> None:
     assert transcriber._normalize_word("ल्यापटोपहरूको") == "laptopहरूको"
     assert transcriber._normalize_word("हार्डिक्स") == "hard disk"
     assert transcriber._normalize_word("क्याप्सिटी") == "capacity"
+    assert transcriber._normalize_word(" प्रोफेसनल") == "professional"
     assert transcriber._normalize_word("राममा") == "राममा"
 
 
@@ -188,6 +213,19 @@ def test_hindi_looking_nepali_transcript_is_flagged() -> None:
         transcriber.Word(2.5, 3.0, "हुआ"),
     ]
     assert "Hindi verb forms" in (transcriber._nepali_language_warning(hindi, "ne") or "")
+
+
+def test_shared_nepali_hindi_forms_do_not_trigger_a_hindi_warning() -> None:
+    nepali = [
+        transcriber.Word(0.0, 0.5, "उनीहरू"),
+        transcriber.Word(0.5, 1.0, "घर"),
+        transcriber.Word(1.0, 1.5, "गए।"),
+        transcriber.Word(1.5, 2.0, "त्यहाँ"),
+        transcriber.Word(2.0, 2.5, "रहे।"),
+        transcriber.Word(2.5, 3.0, "लेकिन"),
+        transcriber.Word(3.0, 3.5, "फर्किए।"),
+    ]
+    assert transcriber._nepali_language_warning(nepali, "ne") is None
 
 
 def test_translate_disables_the_nepali_prompt() -> None:
