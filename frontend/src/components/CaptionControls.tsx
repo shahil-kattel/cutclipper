@@ -284,7 +284,7 @@ export function CaptionStyleControls({
         <div
           className={cn(
             'grid gap-1.5',
-            compactPresets ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2',
+            compactPresets ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 min-[380px]:grid-cols-2',
           )}
         >
           <NonePresetButton
@@ -315,7 +315,7 @@ export function CaptionStyleControls({
         <div
           className={cn(
             'grid gap-1.5',
-            compactPresets ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2',
+            compactPresets ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 min-[380px]:grid-cols-2',
           )}
         >
           <NonePresetButton

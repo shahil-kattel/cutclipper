@@ -96,10 +96,26 @@ function groupWords(words: TranscriptWord[]): CaptionGroup[] {
   return groups
 }
 
+function timingWeight(text: string): number {
+  let weight = 0
+  for (const char of text) {
+    if (/\s/.test(char)) weight += 0.35
+    else if ('।॥,;:!?…'.includes(char)) weight += 1.4
+    else if ('.!?'.includes(char)) weight += 1
+    else if (char >= 'ऀ' && char <= 'ॿ') {
+      if (char === '्') weight += 0.1
+      else if (/\p{M}/u.test(char)) weight += 0.35
+      else weight += 1
+    } else if (/[\p{L}\p{N}]/u.test(char)) weight += 1
+    else weight += 0.4
+  }
+  return Math.max(1, weight)
+}
+
 function splitEditedSegment(segment: CaptionSegment): TranscriptWord[] {
   const tokens = segment.text.split(/\s+/).filter(Boolean)
   if (!tokens.length) return []
-  const weights = tokens.map((token) => Math.max(1, token.length))
+  const weights = tokens.map(timingWeight)
   const total = weights.reduce((sum, value) => sum + value, 0)
   const duration = Math.max(0.2, segment.end - segment.start)
   let cursor = segment.start

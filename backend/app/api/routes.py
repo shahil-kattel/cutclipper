@@ -212,13 +212,13 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
     warnings = list(transcript.warnings)
     if transcript.language == "ne" and language != "ne":
         warnings.append(
-            "Nepali was detected. Pick नेपाली and Best or Maximum accuracy (large-v3) for a "
-            "transcript close to perfect; Fast and Balanced use smaller, less exact models."
+            "Nepali was detected, so CutClipper used the Nepali fine-tuned model and Devanagari "
+            "captions automatically."
         )
     elif transcript.language == "hi" and language is None:
         warnings.append(
-            "Hindi was detected. If this video is actually Nepali, choose नेपाली and Balanced "
-            "or Best accuracy so the Nepali model, prompt, and Devanagari caption font are used."
+            "Hindi was detected. If this video is actually Nepali, choose नेपाली so the Nepali "
+            "fine-tuned model and Devanagari captions are used."
         )
     if not segments:
         warnings.append("No speech was detected in this video. You can add caption lines manually.")

@@ -447,7 +447,7 @@ export function CaptionStep({
       </motion.div>
 
       <div className="mt-7 grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <div className="paper-card taped overflow-hidden p-2.5">
             <div
               ref={stageRef}
@@ -482,9 +482,9 @@ export function CaptionStep({
                 className="absolute inset-0"
               />
             </div>
-            <div className="flex items-center justify-between gap-3 border-t border-dashed border-ink/20 px-2 pb-1 pt-3 text-[10.5px] font-medium text-ink-soft">
-              <span className="inline-flex items-center gap-1.5">
-                <Sparkles className="h-3 w-3 text-tomato/70" aria-hidden="true" />
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-dashed border-ink/20 px-2 pb-1 pt-3 text-[10.5px] font-medium text-ink-soft">
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <Sparkles className="h-3 w-3 shrink-0 text-tomato/70" aria-hidden="true" />
                 Live preview · captions render in sync with playback
               </span>
               <span className="font-display tabular-nums text-ink-soft">
@@ -699,7 +699,7 @@ export function CaptionStep({
           </SectionCard>
         </div>
 
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <SectionCard
             icon={Palette}
             eyebrow="Style"
@@ -955,7 +955,7 @@ function SegmentRow({
           : 'border-ink/20 bg-paper hover:border-ink/50',
       )}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
         <span className="w-6 shrink-0 font-display text-[10px] tabular-nums text-ink-faint">
           {String(index + 1).padStart(2, '0')}
         </span>
