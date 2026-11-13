@@ -28,6 +28,8 @@ from app.services.media import (
     MediaTools,
     encoder_args,
     escape_filter_path,
+    filter_fonts_dir,
+    filter_relative_path,
     get_media_tools,
     probe_output_sync,
 )
@@ -174,6 +176,7 @@ def _video_filters(
     transitions: TransitionSettings,
     settings: Settings,
     fonts_dir: Path,
+    work_dir: Path,
     reframe_mode: ReframeMode,
 ) -> tuple[str, str]:
     width, height = output_size
@@ -186,36 +189,30 @@ def _video_filters(
         raise ProcessingError("The source video has invalid dimensions.")
     caption_filter = ""
     if caption_path is not None:
-        escaped_ass = escape_filter_path(str(caption_path))
-        escaped_fonts = escape_filter_path(str(fonts_dir))
+        # Keep both paths relative to the FFmpeg cwd so an apostrophe anywhere
+        # in the installation path cannot break the quoted filter value.
+        escaped_ass = escape_filter_path(filter_relative_path(caption_path, work_dir))
+        escaped_fonts = escape_filter_path(filter_relative_path(fonts_dir, work_dir))
         caption_filter = f",ass=filename='{escaped_ass}':fontsdir='{escaped_fonts}'"
 
-    if reframe_mode == ReframeMode.BLUR:
-        chain = (
-            f"[0:v]split=2[bg0][fg0];"
-            f"[bg0]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},boxblur=28:2,eq=brightness=-0.07[bg];"
-            f"[fg0]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps={fps},setsar=1"
-            f"{caption_filter},format=yuv420p[{pre_label}]"
-        )
-    else:
-        crop_width, crop_height = _crop_dimensions(media.width, media.height, width, height)
-        track = face_track or FaceTrack.centered()
-        x_expr, y_expr = _crop_expr(
-            track,
-            source_width=media.width,
-            source_height=media.height,
-            crop_width=crop_width,
-            crop_height=crop_height,
-            duration=duration,
-            mode=reframe_mode,
-        )
-        chain = (
-            f"[0:v]crop=w={crop_width}:h={crop_height}:x='{x_expr}':y='{y_expr}',"
-            f"scale={width}:{height}:flags=lanczos,setsar=1,fps={fps}"
-            f"{caption_filter},format=yuv420p[{pre_label}]"
-        )
+    # Every reframe mode crops to fill the target frame edge to edge, so the
+    # exported clip is genuinely vertical with no letterboxing or blur padding.
+    crop_width, crop_height = _crop_dimensions(media.width, media.height, width, height)
+    track = face_track or FaceTrack.centered()
+    x_expr, y_expr = _crop_expr(
+        track,
+        source_width=media.width,
+        source_height=media.height,
+        crop_width=crop_width,
+        crop_height=crop_height,
+        duration=duration,
+        mode=reframe_mode,
+    )
+    chain = (
+        f"[0:v]crop=w={crop_width}:h={crop_height}:x='{x_expr}':y='{y_expr}',"
+        f"scale={width}:{height}:flags=lanczos,setsar=1,fps={fps}"
+        f"{caption_filter},format=yuv420p[{pre_label}]"
+    )
 
     if not transitions.enabled:
         chain += f";[{pre_label}]null[{out_label}]"
@@ -366,6 +363,7 @@ class ClipRenderer:
         self._faces_present: bool | None = None
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (work_dir / "captions").mkdir(parents=True, exist_ok=True)
+        self.fonts_ref = filter_fonts_dir(work_dir, settings.fonts_dir)
 
     async def render(
         self,
@@ -382,6 +380,10 @@ class ClipRenderer:
         duration = plan.duration
         width, height = output_dimensions(self.clip_settings.aspect_ratio)
         reframe_mode = self.clip_settings.reframe_mode
+        if reframe_mode == ReframeMode.BLUR:
+            # Blur-fit padding is retired. Older clients that still send it
+            # get a full-bleed center crop instead of a letterboxed frame.
+            reframe_mode = ReframeMode.CENTER
         captions = self.clip_settings.captions
         transitions = self.clip_settings.transitions
         warnings: list[str] = []
@@ -400,8 +402,8 @@ class ClipRenderer:
                 )
                 if not self._faces_present:
                     warnings.append(
-                        "No faces were detected in this video, so clips use a resized frame "
-                        "instead of face tracking."
+                        "No faces were detected in this video, so clips use a full-bleed "
+                        "center crop instead of face tracking."
                     )
             if self._faces_present:
                 on_stage(
@@ -419,14 +421,14 @@ class ClipRenderer:
                 if face_track.warning:
                     warnings.append(face_track.warning)
                 if not face_track.has_face:
-                    # Faces exist somewhere, but not in this clip: preserve the
-                    # full frame with a blurred background instead of cropping.
+                    # Faces exist somewhere, but not in this clip: fill the
+                    # frame with a centered crop instead of padding it.
                     face_track = None
-                    effective_reframe = ReframeMode.BLUR
-                    on_stage(JobStage.REFRAMING, "No face in this clip · resizing", 0.05)
+                    effective_reframe = ReframeMode.CENTER
+                    on_stage(JobStage.REFRAMING, "No face in this clip · center crop", 0.05)
             else:
-                effective_reframe = ReframeMode.BLUR
-                on_stage(JobStage.REFRAMING, "Resizing frame · no face tracking", 0.05)
+                effective_reframe = ReframeMode.CENTER
+                on_stage(JobStage.REFRAMING, "Filling the frame · center crop", 0.05)
         else:
             on_stage(JobStage.REFRAMING, f"Reframing clip {index}", 0.05)
 
@@ -476,7 +478,8 @@ class ClipRenderer:
             caption_path=caption_path,
             transitions=transitions,
             settings=self.settings,
-            fonts_dir=self.settings.fonts_dir,
+            fonts_dir=self.fonts_ref,
+            work_dir=self.work_dir,
             reframe_mode=effective_reframe,
         )
         filter_complex = video_chain
@@ -515,6 +518,7 @@ class ClipRenderer:
                 command,
                 cancel_event=self.cancel_event,
                 timeout_seconds=self.settings.render_timeout_seconds,
+                cwd=self.work_dir,
                 on_stdout_line=handle_progress_line,
             )
         except JobCancelledError:
@@ -555,6 +559,7 @@ class ClipRenderer:
                     command,
                     cancel_event=self.cancel_event,
                     timeout_seconds=self.settings.render_timeout_seconds,
+                    cwd=self.work_dir,
                     on_stdout_line=handle_progress_line,
                 )
             except (JobCancelledError, ProcessingError):

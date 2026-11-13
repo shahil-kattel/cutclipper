@@ -135,6 +135,19 @@ def validate_public_url_shape(raw: str) -> str:
     return normalized
 
 
+def _public_addresses(hostname: str, port: int) -> set[str]:
+    try:
+        results = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, OSError) as exc:
+        raise URLValidationError(
+            "We could not resolve that hostname. Check the link and your connection."
+        ) from exc
+    addresses = {entry[4][0] for entry in results if entry[4]}
+    if not addresses or any(not _is_public_ip(address) for address in addresses):
+        raise URLValidationError("Local and private network links are not supported.")
+    return addresses
+
+
 async def validate_remote_url(raw: str, *, timeout: float = 6.0) -> str:
     """Validate the URL shape and ensure every DNS answer is publicly routable."""
 
@@ -161,6 +174,19 @@ async def validate_remote_url(raw: str, *, timeout: float = 6.0) -> str:
     addresses = {entry[4][0] for entry in results if entry[4]}
     if not addresses or any(not _is_public_ip(address) for address in addresses):
         raise URLValidationError("Local and private network links are not supported.")
+    return value
+
+
+def validate_remote_url_sync(raw: str) -> str:
+    """Synchronous variant for probing redirect targets off the event loop."""
+
+    value = validate_public_url_shape(raw)
+    parts = urlsplit(value)
+    hostname = parts.hostname
+    assert hostname is not None
+    if _is_ip_literal(hostname):
+        return value
+    _public_addresses(hostname, parts.port or (443 if parts.scheme == "https" else 80))
     return value
 
 

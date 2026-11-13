@@ -28,7 +28,7 @@ from app.core.errors import (
     ProcessingError,
     URLValidationError,
 )
-from app.core.validation import validate_remote_url
+from app.core.validation import validate_remote_url, validate_remote_url_sync
 from app.schemas import VideoMetadata
 from app.services.media import get_media_tools, probe_media_sync
 from app.services.process import run_process
@@ -146,6 +146,15 @@ def _base_command(settings: Settings) -> list[str]:
     ]
     if shutil.which("node"):
         command.extend(["--js-runtimes", "node"])
+    # Point yt-dlp at the FFmpeg build the app uses. Keg-only installs such as
+    # ffmpeg-full are not on PATH, and without this the mux step fails with a
+    # misleading "link unavailable" error.
+    try:
+        ffmpeg_path = get_media_tools(settings).ffmpeg
+    except Exception:
+        ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        command.extend(["--ffmpeg-location", ffmpeg_path])
     validate_cookies_path(settings)
     cookies_file = _cookies_file(settings)
     if cookies_file is not None:
@@ -193,6 +202,13 @@ def _classify_error(
         return MediaFetchError(
             "That link isn't a supported video source.",
             code="unsupported_url",
+            retryable=False,
+        )
+    if "ffmpeg not found" in message or "ffmpeg-location" in message:
+        return MediaFetchError(
+            "FFmpeg could not be found to merge the downloaded video and audio. "
+            "Install FFmpeg (for example, ffmpeg-full) and restart CutClipper.",
+            code="ffmpeg_missing",
             retryable=False,
         )
     if any(
@@ -264,6 +280,24 @@ def _fallback_title(url: str) -> str:
     return name.title() if name else "Untitled video"
 
 
+def _resolve_public_redirects(url: str, *, limit: int = 6) -> str:
+    """Follow redirects manually so every hop is re-checked against SSRF rules."""
+
+    current = url
+    headers = {"User-Agent": "CutClipper/1.0"}
+    with httpx.Client(follow_redirects=False, timeout=httpx.Timeout(20.0)) as client:
+        for _ in range(limit + 1):
+            validate_remote_url_sync(current)
+            with client.stream("GET", current, headers=headers) as response:
+                if not response.is_redirect:
+                    return current
+                location = response.headers.get("location")
+                if not location:
+                    return current
+                current = urljoin(current, location)
+    raise MediaFetchError("The video link redirected too many times.", retryable=False)
+
+
 def _metadata_from_info(
     info: dict[str, Any],
     *,
@@ -298,7 +332,8 @@ def _metadata_from_info(
 
     if duration <= 0:
         try:
-            media_info = probe_media_sync(normalized_url, timeout=45)
+            safe_url = _resolve_public_redirects(normalized_url)
+            media_info = probe_media_sync(safe_url, timeout=45, max_redirects=0)
             duration = media_info.duration
             width = width or media_info.width
             height = height or media_info.height

@@ -57,7 +57,7 @@ Link sources are fetched by the backend. Optional file uploads are stored only i
 ### Reframing
 - **Smart tracking** detects faces with OpenCV, follows the main face, applies temporal association, interpolation, robust smoothing, and path simplification before rendering.
 - Crop movement is expressed as an interpolated FFmpeg crop path — no detector jitter.
-- **Center crop** and **blur-background fit** fallbacks.
+- **Center crop** fallback when no face is found — every clip fills the target frame edge to edge, with no letterboxing or blur padding.
 - 9:16 `1080×1920` by default, plus **1:1 `1080×1080`** and **4:5 `1080×1350`**.
 
 ### Captions and the Caption studio
@@ -412,7 +412,7 @@ Set `CUTCLIPPER_CORS_ORIGINS='["https://your-frontend.example"]'` (JSON array) a
 - **Local uploads are spooled by FastAPI before validation.** Starlette writes multipart file parts to a spooled temp file; the app enforces a size ceiling from `Content-Length` and again while copying, but untrusted internet deployments should enforce body limits at the proxy and add authentication.
 - **No authenticated multi-tenancy.** Temp upload/job IDs are unguessable, but anyone with network access to the API can create jobs or uploads. Run it on a trusted network or put an auth proxy in front.
 - **Single subtitle track per clip.** Captions are localized to the selected clip and use the target output's safe area.
-- **Face tracking is person-focused.** The largest stable face is treated as the subject. For group shots or no faces, center crop or blur-fit are better choices.
+- **Face tracking is person-focused.** The largest stable face is treated as the subject. For group shots or no faces, center crop is the safer choice. Clips always fill the frame; there is no blur-fit padding.
 - **No content bypassing.** CutClipper only downloads public URLs you can access; it does not bypass DRM, paywalls, or private-video restrictions.
 - **Respect creators.** Only download and republish videos you have the rights to use. The MIT license covers the software, not the media you process with it.
 

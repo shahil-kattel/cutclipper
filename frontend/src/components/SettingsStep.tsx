@@ -8,7 +8,6 @@ import {
   Clock3,
   Crop,
   Languages,
-  Layers,
   Minus,
   Scissors,
   ScanFace,
@@ -33,6 +32,7 @@ import {
   formatDurationLong,
   sourceName,
 } from '../lib/utils'
+import { assetUrl } from '../lib/api'
 import { Button, RangeField, SectionCard, Toggle } from './ui'
 import { CaptionPreview } from './CaptionPreview'
 import { CaptionStyleControls } from './CaptionControls'
@@ -85,20 +85,14 @@ const REFRAME_MODES: Array<{
   {
     value: 'smart',
     label: 'Smart track',
-    copy: 'Follows the main face with stabilized easing.',
+    copy: 'Follows the main face and fills the frame. Falls back to a center crop.',
     icon: ScanFace,
   },
   {
     value: 'center',
     label: 'Center crop',
-    copy: 'A steady, predictable center window.',
+    copy: 'A steady, predictable center window that fills the frame.',
     icon: Crop,
-  },
-  {
-    value: 'blur',
-    label: 'Blur fit',
-    copy: 'Full frame centered over a blurred backdrop.',
-    icon: Layers,
   },
 ]
 
@@ -890,7 +884,6 @@ function ModeButton({
 
 function PreviewPhone({ preview, settings }: { preview: PreviewResponse; settings: ClipSettings }) {
   const [imageFailed, setImageFailed] = useState(false)
-  const blur = settings.reframe_mode === 'blur'
 
   return (
     <div className="paper-card taped taped-pink rotate-[0.8deg] p-3 pb-2">
@@ -903,24 +896,13 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
       <div className="relative mx-auto w-full max-w-[18.5rem] overflow-hidden rounded-[1.15rem] border-[1.5px] border-ink bg-[#050814] shadow-[3px_4px_0_#211d19]">
         <div className="relative" style={{ aspectRatio: settings.aspect_ratio.replace(':', '/') }}>
           {preview.thumbnail_url && !imageFailed ? (
-            <>
-              {blur ? (
-                <img
-                  src={preview.thumbnail_url}
-                  alt=""
-                  className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.45]"
-                  referrerPolicy="no-referrer"
-                  onError={() => setImageFailed(true)}
-                />
-              ) : null}
-              <img
-                src={preview.thumbnail_url}
-                alt={`Framing preview for ${preview.title}`}
-                className={cn('relative h-full w-full', blur ? 'object-contain' : 'object-cover')}
-                referrerPolicy="no-referrer"
-                onError={() => setImageFailed(true)}
-              />
-            </>
+            <img
+              src={assetUrl(preview.thumbnail_url)}
+              alt={`Framing preview for ${preview.title}`}
+              className="relative h-full w-full object-cover"
+              referrerPolicy="no-referrer"
+              onError={() => setImageFailed(true)}
+            />
           ) : (
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(44,232,255,0.22),transparent_50%),radial-gradient(circle_at_80%_80%,rgba(255,79,216,0.18),transparent_45%),linear-gradient(160deg,#0a1228,#0c0a1d)]" />
           )}
@@ -931,11 +913,7 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
               {settings.aspect_ratio}
             </span>
             <span className="rounded-md border-[1.5px] border-ink bg-paper-soft px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.1em] text-ink shadow-[1px_1px_0_#211d19]">
-              {settings.reframe_mode === 'smart'
-                ? 'Face track'
-                : settings.reframe_mode === 'blur'
-                  ? 'Blur fit'
-                  : 'Center'}
+              {settings.reframe_mode === 'smart' ? 'Face track' : 'Center'}
             </span>
           </div>
 

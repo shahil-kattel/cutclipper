@@ -44,6 +44,8 @@ class AspectRatio(StrEnum):
 class ReframeMode(StrEnum):
     SMART = "smart"
     CENTER = "center"
+    # Kept for API compatibility. The renderer treats this as a full-bleed
+    # center crop; clips are never letterboxed or blur-padded.
     BLUR = "blur"
 
 

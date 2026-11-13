@@ -19,6 +19,8 @@ from app.services.media import (
     MediaTools,
     encoder_args,
     escape_filter_path,
+    filter_fonts_dir,
+    filter_relative_path,
     get_media_tools,
     probe_output_sync,
 )
@@ -50,34 +52,41 @@ async def _thumbnail(
     cancel_event: Event,
     seek: float | None = None,
 ) -> None:
+    duration = max(0.0, duration)
     target = seek if seek is not None else duration * 0.18
-    target = min(max(0.4, target), max(0.4, duration - 0.1))
-    command = [
-        tools.ffmpeg,
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-ss",
-        f"{target:.3f}",
-        "-i",
-        str(video_path),
-        "-frames:v",
-        "1",
-        "-vf",
-        "scale=540:-2",
-        "-q:v",
-        "4",
-        str(thumbnail_path),
-    ]
-    result = await run_process(command, cancel_event=cancel_event, timeout_seconds=60)
-    if result.returncode != 0 or not thumbnail_path.exists():
-        raise ProcessingError(
-            "The captioned video rendered, but its preview image could not be created.",
-            code="thumbnail_failed",
-            retryable=True,
-        )
+    # Keep a minimum seek only when the video is long enough to have one; a
+    # sub-second upload has no frame at 0.4s.
+    floor = 0.4 if duration > 0.6 else 0.0
+    target = min(max(floor, target), max(0.0, duration - 0.05))
+
+    for attempt_target in dict.fromkeys((target, 0.0)):
+        command = [
+            tools.ffmpeg,
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            f"{attempt_target:.3f}",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale=540:-2",
+            "-q:v",
+            "4",
+            str(thumbnail_path),
+        ]
+        result = await run_process(command, cancel_event=cancel_event, timeout_seconds=60)
+        if result.returncode == 0 and thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
+            return
+    raise ProcessingError(
+        "The captioned video rendered, but its preview image could not be created.",
+        code="thumbnail_failed",
+        retryable=True,
+    )
 
 
 def _build_command(
@@ -90,9 +99,13 @@ def _build_command(
     media: MediaInfo,
     width: int,
     height: int,
+    work_dir: Path,
 ) -> list[str]:
-    escaped_ass = escape_filter_path(str(ass_path))
-    escaped_fonts = escape_filter_path(str(settings.fonts_dir))
+    # Relative references keep apostrophes in installation paths out of the
+    # quoted filtergraph value; the command runs with cwd=work_dir.
+    fonts_dir = filter_fonts_dir(work_dir, settings.fonts_dir)
+    escaped_ass = escape_filter_path(filter_relative_path(ass_path, work_dir))
+    escaped_fonts = escape_filter_path(filter_relative_path(fonts_dir, work_dir))
     filter_complex = (
         f"[0:v]scale={width}:{height}:flags=lanczos,setsar=1,"
         f"ass=filename='{escaped_ass}':fontsdir='{escaped_fonts}',"
@@ -205,12 +218,14 @@ async def render_captioned_video(
         media=media,
         width=width,
         height=height,
+        work_dir=work_dir,
     )
     try:
         result = await run_process(
             command,
             cancel_event=cancel_event,
             timeout_seconds=settings.render_timeout_seconds,
+            cwd=work_dir,
             on_stdout_line=handle_progress_line,
         )
     except JobCancelledError:
@@ -245,12 +260,14 @@ async def render_captioned_video(
             media=media,
             width=width,
             height=height,
+            work_dir=work_dir,
         )
         try:
             result = await run_process(
                 command,
                 cancel_event=cancel_event,
                 timeout_seconds=settings.render_timeout_seconds,
+                cwd=work_dir,
                 on_stdout_line=handle_progress_line,
             )
         except (JobCancelledError, ProcessingError):

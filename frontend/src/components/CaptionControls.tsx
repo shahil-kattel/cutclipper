@@ -56,6 +56,7 @@ export function FontPicker({
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setOpen(false)
+        setQuery('')
         triggerRef.current?.focus()
       }
     }
@@ -116,6 +117,7 @@ export function FontPicker({
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               setOpen(false)
+              setQuery('')
               triggerRef.current?.focus()
             }
           }}
@@ -140,6 +142,7 @@ export function FontPicker({
                 type="button"
                 onClick={() => {
                   setOpen(false)
+                  setQuery('')
                   triggerRef.current?.focus()
                 }}
                 aria-label="Close font picker"

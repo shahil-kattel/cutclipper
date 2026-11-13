@@ -16,9 +16,7 @@ export function CaptionExportStudio({
   onApply: (captions: CaptionSettings) => Promise<void>
   onClose: () => void
 }) {
-  const [draft, setDraft] = useState<CaptionSettings>(() =>
-    structuredClone(job.settings.captions),
-  )
+  const [draft, setDraft] = useState<CaptionSettings>(() => structuredClone(job.settings.captions))
   const [playing, setPlaying] = useState(true)
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -31,12 +29,12 @@ export function CaptionExportStudio({
 
   const captionMode = job.mode === 'captions'
   const primaryClip = job.clips[0]
-  const aspect = captionMode && primaryClip
-    ? `${primaryClip.width} / ${primaryClip.height}`
-    : job.settings.aspect_ratio.replace(':', ' / ')
-  const downloadHref = captionMode && primaryClip
-    ? assetUrl(primaryClip.download_url)
-    : downloadAllUrl(job)
+  const aspect =
+    captionMode && primaryClip
+      ? `${primaryClip.width} / ${primaryClip.height}`
+      : job.settings.aspect_ratio.replace(':', ' / ')
+  const downloadHref =
+    captionMode && primaryClip ? assetUrl(primaryClip.download_url) : downloadAllUrl(job)
   const changed = JSON.stringify(draft) !== JSON.stringify(job.settings.captions)
 
   const apply = async () => {
@@ -113,7 +111,12 @@ export function CaptionExportStudio({
               )}
               <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/60" />
               {draft.enabled ? (
-                <CaptionPreview settings={draft} loop={playing} className="absolute inset-0" />
+                <CaptionPreview
+                  settings={draft}
+                  loop
+                  paused={!playing}
+                  className="absolute inset-0"
+                />
               ) : null}
               <div className="absolute inset-x-0 top-0 flex items-center justify-between p-2.5">
                 <span className="rounded-md border border-ink bg-mustard px-1.5 py-0.5 text-[7.5px] font-bold uppercase tracking-[0.1em] text-ink shadow-[1px_1px_0_#211d19]">

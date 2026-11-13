@@ -78,6 +78,7 @@ function AppContent() {
   const handledStatus = useRef<string | null>(null)
   const generationRef = useRef(false)
   const generationToken = useRef(0)
+  const captionRequest = useRef(0)
   const restoreAttempted = useRef(false)
 
   const { job: streamedJob, connection } = useJobStream(jobId, step === 'processing')
@@ -206,10 +207,13 @@ function AppContent() {
       quality = captionQuality,
       task: TranscriptionTask = captionTask,
     ) => {
+      // A slower earlier request must never overwrite lines for a newer upload.
+      const requestId = ++captionRequest.current
       setCaptionLoading(true)
       setCaptionError(null)
       try {
         const response = await transcribeCaptions(uploadId, language, force, quality, task)
+        if (captionRequest.current !== requestId) return
         setCaptionTranscript(response)
         setCaptionSegments(response.segments)
         const translated = response.translated === true || task === 'translate'
@@ -228,9 +232,10 @@ function AppContent() {
           toast.info('No speech detected. You can add caption lines manually.')
         }
       } catch (error) {
+        if (captionRequest.current !== requestId) return
         setCaptionError(errorMessage(error))
       } finally {
-        setCaptionLoading(false)
+        if (captionRequest.current === requestId) setCaptionLoading(false)
       }
     },
     [captionQuality, captionTask, toast],
@@ -238,6 +243,8 @@ function AppContent() {
 
   const uploadLocalFile = useCallback(
     async (file: File) => {
+      captionRequest.current += 1
+      setCaptionLoading(false)
       setPreviewLoading(true)
       setPreviewError(null)
       setPreviewRetryable(false)
@@ -335,6 +342,8 @@ function AppContent() {
 
   const backToLink = useCallback(() => {
     generationToken.current += 1
+    captionRequest.current += 1
+    setCaptionLoading(false)
     setCancelRequested(false)
     setPreview(null)
     setGenerationError(null)
@@ -517,6 +526,8 @@ function AppContent() {
 
   const startOver = useCallback(() => {
     generationToken.current += 1
+    captionRequest.current += 1
+    setCaptionLoading(false)
     clearActiveJob()
     setCancelRequested(false)
     setStep('link')

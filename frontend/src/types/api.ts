@@ -1,6 +1,6 @@
 export type SelectionMode = 'auto' | 'even'
 export type AspectRatio = '9:16' | '1:1' | '4:5'
-export type ReframeMode = 'smart' | 'center' | 'blur'
+export type ReframeMode = 'smart' | 'center'
 export type CaptionStyle =
   | 'karaoke'
   | 'pop'

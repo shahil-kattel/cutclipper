@@ -18,6 +18,7 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import type { PreviewResponse } from '../types/api'
+import { assetUrl } from '../lib/api'
 import { cn, formatDuration, sourceName } from '../lib/utils'
 import { Button, Skeleton } from './ui'
 import { useToast } from '../hooks/useToast'
@@ -374,14 +375,17 @@ export function LinkStep({
                   >
                     <div
                       onDragOver={(event) => {
-                        if (uploading || loading) return
+                        // Always prevent the browser's default open-file drop,
+                        // even while a file is already uploading.
                         event.preventDefault()
+                        if (uploading || loading) return
                         setDragging(true)
                       }}
                       onDragLeave={() => setDragging(false)}
                       onDrop={(event) => {
                         event.preventDefault()
                         setDragging(false)
+                        if (uploading || loading) return
                         chooseFile(event.dataTransfer.files?.[0])
                       }}
                       className={cn(
@@ -627,7 +631,7 @@ function PreviewCard({
         <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg border-[1.5px] border-ink bg-ink sm:w-64">
           {preview.thumbnail_url && !imageFailed ? (
             <img
-              src={preview.thumbnail_url}
+              src={assetUrl(preview.thumbnail_url)}
               alt=""
               className="h-full w-full object-cover"
               loading="eager"
@@ -640,7 +644,7 @@ function PreviewCard({
             </div>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-ink/80 via-transparent to-transparent" />
-          <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 rounded-md border border-ink bg-paper-soft px-2 py-1 text-[9px] font-bold uppercase tracking-[0.06em] tabular-nums text-ink shadow-[1px_1px_0_#211d19]">
+          <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 rounded-md border border-ink bg-paper-soft px-2 py-1 text-[9px] font-bold uppercase tabular-nums tracking-[0.06em] text-ink shadow-[1px_1px_0_#211d19]">
             <Clock3 className="h-3 w-3 text-tomato" aria-hidden="true" />
             {formatDuration(preview.duration)}
           </span>

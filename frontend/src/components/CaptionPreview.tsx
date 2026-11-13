@@ -26,6 +26,8 @@ interface CaptionPreviewProps {
   words?: TranscriptWord[]
   time?: number
   loop?: boolean
+  /** Freeze the loop clock while keeping the current frame visible. */
+  paused?: boolean
   fontSize?: number
   className?: string
   stageRef?: RefObject<HTMLElement | null>
@@ -119,11 +121,18 @@ function resolveTimeline(
     const matchingWords = sourceWords.filter(
       (word) => word.end > segment.start + 0.01 && word.start < segment.end - 0.01,
     )
+    const editedTokens = segment.text.split(/\s+/).filter(Boolean)
     const textMatches =
       matchingWords.length > 0 &&
       normalizeText(matchingWords.map((word) => word.text).join(' ')) ===
         normalizeText(segment.text)
-    const segmentWords = textMatches ? matchingWords : splitEditedSegment(segment)
+    // Keep the transcript's word timing while honouring the user's exact
+    // text (for example a capitalization-only correction).
+    const segmentWords = textMatches
+      ? editedTokens.length === matchingWords.length
+        ? matchingWords.map((word, index) => ({ ...word, text: editedTokens[index] ?? word.text }))
+        : splitEditedSegment(segment)
+      : splitEditedSegment(segment)
     if (!segmentWords.length) return null
     return { words: segmentWords, start: segment.start, end: segment.end }
   }
@@ -150,18 +159,23 @@ function withAlpha(hex: string, alpha: number): string {
 
 function usePreviewClock(active: boolean): number {
   const [clock, setClock] = useState(0)
+  const clockRef = useRef(0)
   useEffect(() => {
     if (!active) return
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (reduced) {
+      clockRef.current = 1.1
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setClock(1.1)
       return
     }
     let frame = 0
-    const started = performance.now()
+    // Resume from the frozen frame instead of restarting the sample.
+    const started = performance.now() - clockRef.current * 1000
     const tick = (now: number) => {
-      setClock(((now - started) / 1000) % CAPTION_PREVIEW_LOOP_SECONDS)
+      const next = ((now - started) / 1000) % CAPTION_PREVIEW_LOOP_SECONDS
+      clockRef.current = next
+      setClock(next)
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
@@ -211,6 +225,7 @@ export function CaptionPreview({
   words,
   time,
   loop = false,
+  paused = false,
   fontSize,
   className,
   stageRef,
@@ -219,7 +234,7 @@ export function CaptionPreview({
   const ownRef = useRef<HTMLDivElement>(null)
   const observedRef = stageRef ?? ownRef
   const width = useWidth(observedRef)
-  const loopTime = usePreviewClock(loop)
+  const loopTime = usePreviewClock(loop && !paused)
   const videoTime = useVideoClock(video)
   const currentTime = loop ? loopTime : video ? videoTime : (time ?? 0)
   const timeline = loop ? undefined : segments

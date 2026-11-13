@@ -27,9 +27,10 @@ import type {
   TranscriptionQuality,
   TranscriptionTask,
 } from '../types/api'
-import { uploadVideoUrl } from '../lib/api'
+import { assetUrl, uploadVideoUrl } from '../lib/api'
 import { downloadSrt } from '../lib/srt'
 import { cn, formatDuration } from '../lib/utils'
+import { useToast } from '../hooks/useToast'
 import { Button, Pill, SectionCard } from './ui'
 import { CaptionPreview } from './CaptionPreview'
 import { CaptionStyleControls } from './CaptionControls'
@@ -107,6 +108,7 @@ export function CaptionStep({
   onRender,
   generating,
 }: CaptionStepProps) {
+  const toast = useToast()
   const videoRef = useRef<HTMLVideoElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
@@ -173,14 +175,63 @@ export function CaptionStep({
   }
 
   const addSegment = () => {
+    const duration = Math.max(0, preview.duration)
+    if (duration < 0.2) return
+    const gap = 0.05
+    const minLength = Math.min(1, duration)
     const last = segments[segments.length - 1]
-    const start = last ? Math.min(preview.duration - 0.5, last.end + 0.15) : 0
-    const end = Math.max(start + 1, Math.min(preview.duration, start + 3))
+    let insertAt = segments.length
+    let start = 0
+    if (last) {
+      start = last.end + gap
+      if (start > duration - minLength) {
+        // The last line already reaches the end of the video. Add the new
+        // line before it when there is a real gap, never on top of it.
+        const previous = segments[segments.length - 2]
+        const previousEnd = previous ? previous.end : 0
+        if (last.start - previousEnd < minLength + gap) {
+          toast.info('No room for another line. Shorten or split an existing line first.')
+          return
+        }
+        insertAt = segments.length - 1
+        start = previousEnd + gap
+      }
+    }
+    const end = Math.min(duration, Math.max(start + minLength, start + 3))
     onSegmentsChange([
-      ...segments,
+      ...segments.slice(0, insertAt),
       { start: Number(start.toFixed(2)), end: Number(end.toFixed(2)), text: 'New caption' },
+      ...segments.slice(insertAt),
     ])
-    setSelectedSegment(segments.length)
+    setSelectedSegment(insertAt)
+  }
+
+  const validateSegments = (): boolean => {
+    if (!segments.length) {
+      toast.info('Add or transcribe at least one caption line first.')
+      return false
+    }
+    const invalid = segments.some(
+      (segment) =>
+        !segment.text.trim() ||
+        segment.end <= segment.start ||
+        segment.start < 0 ||
+        segment.end > preview.duration + 0.001,
+    )
+    if (invalid) {
+      toast.error('Fix the caption lines with empty text or invalid timing before rendering.')
+      return false
+    }
+    const ordered = [...segments].sort((first, second) => first.start - second.start)
+    for (let index = 1; index < ordered.length; index += 1) {
+      const current = ordered[index]
+      const previous = ordered[index - 1]
+      if (current && previous && current.start < previous.end - 0.001) {
+        toast.error('Caption lines overlap. Adjust their timing before rendering.')
+        return false
+      }
+    }
+    return true
   }
 
   const jumpTo = (start: number) => {
@@ -260,7 +311,7 @@ export function CaptionStep({
               <video
                 ref={videoRef}
                 src={preview.upload_id ? uploadVideoUrl(preview.upload_id) : undefined}
-                poster={preview.thumbnail_url ?? undefined}
+                poster={preview.thumbnail_url ? assetUrl(preview.thumbnail_url) : undefined}
                 controls
                 playsInline
                 preload="metadata"
@@ -531,7 +582,9 @@ export function CaptionStep({
                   size="sm"
                   icon={Film}
                   loading={generating}
-                  onClick={onRender}
+                  onClick={() => {
+                    if (validateSegments()) onRender()
+                  }}
                   disabled={!segments.length || loading}
                 >
                   Render video
@@ -586,45 +639,27 @@ function SegmentRow({
         <label className="sr-only" htmlFor={`caption-start-${index}`}>
           Caption {index + 1} start time
         </label>
-        <input
+        <TimeInput
           id={`caption-start-${index}`}
-          type="number"
+          value={segment.start}
           min={0}
-          max={duration}
-          step={0.1}
-          value={Number(segment.start.toFixed(2))}
+          max={Math.max(0, segment.end - 0.1)}
+          label={`Caption ${index + 1} start`}
           onFocus={onFocus}
-          onChange={(event) => {
-            const value = Math.max(0, Math.min(duration, Number(event.target.value) || 0))
-            onChange({
-              start: value,
-              ...(value >= segment.end ? { end: Math.min(duration, value + 0.2) } : {}),
-            })
-          }}
-          className="paper-input h-7 w-16 rounded-md px-1.5 text-[10.5px] font-semibold tabular-nums text-tomato outline-none"
-          aria-label={`Caption ${index + 1} start`}
+          onCommit={(value) => onChange({ start: value })}
         />
         <span className="text-ink-faint">→</span>
         <label className="sr-only" htmlFor={`caption-end-${index}`}>
           Caption {index + 1} end time
         </label>
-        <input
+        <TimeInput
           id={`caption-end-${index}`}
-          type="number"
-          min={0}
+          value={segment.end}
+          min={Math.min(duration, segment.start + 0.1)}
           max={duration}
-          step={0.1}
-          value={Number(segment.end.toFixed(2))}
+          label={`Caption ${index + 1} end`}
           onFocus={onFocus}
-          onChange={(event) => {
-            const value = Math.max(
-              segment.start + 0.1,
-              Math.min(duration, Number(event.target.value) || 0),
-            )
-            onChange({ end: value })
-          }}
-          className="paper-input h-7 w-16 rounded-md px-1.5 text-[10.5px] font-semibold tabular-nums text-tomato outline-none"
-          aria-label={`Caption ${index + 1} end`}
+          onCommit={(value) => onChange({ end: value })}
         />
         <div className="ml-auto flex items-center gap-0.5">
           <IconAction label="Play this caption" onClick={onPlay}>
@@ -650,6 +685,58 @@ function SegmentRow({
         aria-label={`Caption ${index + 1} text`}
       />
     </div>
+  )
+}
+
+function TimeInput({
+  id,
+  value,
+  min,
+  max,
+  label,
+  onFocus,
+  onCommit,
+}: {
+  id: string
+  value: number
+  min: number
+  max: number
+  label: string
+  onFocus: () => void
+  onCommit: (value: number) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const display = draft ?? value.toFixed(2)
+
+  const commit = () => {
+    if (draft === null) return
+    const parsed = Number.parseFloat(draft)
+    const lower = Math.min(min, max)
+    const upper = Math.max(min, max)
+    const next = Number.isFinite(parsed) ? Math.min(upper, Math.max(lower, parsed)) : value
+    const rounded = Number(next.toFixed(2))
+    onCommit(rounded)
+    setDraft(null)
+  }
+
+  return (
+    <input
+      id={id}
+      type="text"
+      inputMode="decimal"
+      value={display}
+      onFocus={() => {
+        setDraft(value.toFixed(2))
+        onFocus()
+      }}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur()
+      }}
+      className="paper-input h-7 w-16 rounded-md px-1.5 text-[10.5px] font-semibold tabular-nums text-tomato outline-none"
+      aria-label={label}
+    />
   )
 }
 

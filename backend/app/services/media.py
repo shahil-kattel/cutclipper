@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -368,9 +369,42 @@ def encoder_args(tools: MediaTools, settings: Settings) -> list[str]:
 
 
 def escape_filter_path(path: str) -> str:
-    """Escape a path for use inside an FFmpeg filter option."""
+    """Escape a path for use inside an FFmpeg filter option.
+
+    Note that FFmpeg's quoting rules cannot represent an apostrophe inside a
+    quoted filter value. Callers should keep filter paths relative to the
+    render working directory (see :func:`filter_fonts_dir`) so user-controlled
+    installation paths never reach the filtergraph.
+    """
 
     return path.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+
+
+def filter_fonts_dir(work_dir: Path, fonts_dir: Path) -> Path:
+    """Expose the bundled fonts inside the render cwd for safe filter paths.
+
+    A symlink keeps the filtergraph reference ASCII-only (``caption-fonts``)
+    even when the app lives under a path containing an apostrophe, which
+    FFmpeg cannot escape inside ``ass=filename='…'``.
+    """
+
+    link = work_dir / "caption-fonts"
+    if link.exists() or link.is_symlink():
+        return link
+    try:
+        os.symlink(fonts_dir, link, target_is_directory=True)
+    except OSError:
+        return fonts_dir
+    return link
+
+
+def filter_relative_path(path: Path, work_dir: Path) -> str:
+    """Render a filter path relative to the FFmpeg working directory."""
+
+    try:
+        return os.path.relpath(path, work_dir)
+    except (OSError, ValueError):
+        return str(path)
 
 
 def probe_output_sync(path: Path) -> dict[str, Any]:

@@ -19,7 +19,7 @@ export function buildSrt(segments: CaptionSegment[]): string {
       (segment, index) =>
         `${index + 1}\n${srtTimestamp(segment.start)} --> ${srtTimestamp(
           segment.end,
-        )}\n${segment.text.trim()}\n`,
+        )}\n${segment.text.replace(/\s+/g, ' ').trim()}\n`,
     )
     .join('\n')
 }
