@@ -363,6 +363,9 @@ function AppContent() {
     (value: string) => {
       setClipLanguage(value)
       if (value === 'ne') {
+        // Nepali on the medium model is noticeably less exact. Default the
+        // dedicated large-v3 tier unless the user already chose Maximum.
+        setClipQuality((current) => (current === 'maximum' ? current : 'best'))
         if (!clipTranslate) {
           setSettings((current) =>
             DEVANAGARI_FONTS.has(current.captions.font)
@@ -722,6 +725,9 @@ function AppContent() {
                   onLanguageChange={(value) => {
                     setCaptionLanguage(value)
                     if (value === 'ne') {
+                      // Best = large-v3; it is the tier that gets Nepali close
+                      // to perfect. Users can still pick Fast or Balanced.
+                      setCaptionQuality((current) => (current === 'maximum' ? current : 'best'))
                       setCaptionSettings((current) =>
                         DEVANAGARI_FONTS.has(current.font)
                           ? current

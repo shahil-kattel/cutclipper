@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 from threading import Event
 from types import SimpleNamespace
 
@@ -29,6 +30,17 @@ def test_auto_runtime_uses_int8_on_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (device, compute_type) == ("cpu", "int8")
 
 
+def test_accurate_nepali_model_avoids_the_mps_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(transcriber.sys, "platform", "darwin")
+    monkeypatch.setattr(transcriber.platform, "machine", lambda: "arm64")
+    settings = Settings(whisper_device="auto", whisper_compute_type="auto")
+    accurate = transcriber._accurate_nepali_model(settings)
+    assert transcriber._resolve_runtime_for_model(accurate, settings) == ("cpu", "int8")
+    assert transcriber._resolve_runtime_for_model("medium", settings) == ("mps", "float16")
+
+
 def test_explicit_runtime_settings_are_respected() -> None:
     device, compute_type = transcriber._resolve_runtime(
         Settings(whisper_device="cuda", whisper_compute_type="float32")
@@ -36,19 +48,57 @@ def test_explicit_runtime_settings_are_respected() -> None:
     assert (device, compute_type) == ("cuda", "float32")
 
 
-def test_maximum_quality_uses_large_v3() -> None:
+def test_maximum_quality_uses_the_accurate_nepali_model() -> None:
     settings = Settings()
-    assert transcriber._model_for("ne", "maximum", settings) == "large-v3"
+    model = "Dragneel/whisper-medium-nepali-openslr-ct2"
+    assert transcriber._model_for("ne", "best", settings) == model
+    assert transcriber._model_for("ne", "maximum", settings) == model
     assert transcriber._beam_for("maximum", settings) == 5
     assert transcriber._beam_for("maximum", settings, "ne") == 10
+    assert transcriber._beam_for_model("best", settings, "ne", model) == 1
+    assert transcriber._beam_for_model("maximum", settings, "ne", model) == 5
+
+
+def test_accurate_chunks_overlap_and_cover_the_audio() -> None:
+    bounds = transcriber._accurate_chunk_bounds(92.0)
+    assert bounds[0] == (0.0, 12.0)
+    assert bounds[1] == (9.0, 21.0)
+    assert bounds[-1][1] == 92.0
+    assert all(0 < end - start <= 12.0 for start, end in bounds)
+    for (_, previous_end), (next_start, _) in itertools.pairwise(bounds):
+        assert previous_end - next_start == pytest.approx(3.0)
 
 
 def test_nepali_quality_ladder_prioritises_accuracy() -> None:
     settings = Settings()
     assert transcriber._model_for("ne", "fast", settings) == "small"
     assert transcriber._model_for("ne", "balanced", settings) == "medium"
-    assert transcriber._model_for("ne", "best", settings) == "large-v3"
+    assert transcriber._model_for("ne", "best", settings) == (
+        "Dragneel/whisper-medium-nepali-openslr-ct2"
+    )
     assert transcriber._beam_for("balanced", settings, "ne") == 5
+
+
+def test_vanilla_tiers_return_when_accurate_model_is_unset() -> None:
+    settings = Settings(nepali_accurate_whisper_model="")
+    assert transcriber._model_for("ne", "best", settings) == "large-v3"
+    assert transcriber._model_for("ne", "maximum", settings) == "large-v3"
+
+
+def test_accurate_nepali_model_skips_the_prompt_and_uses_short_fallback() -> None:
+    settings = Settings(nepali_hotwords="Kathmandu")
+    model = transcriber._accurate_nepali_model(settings)
+    kwargs = transcriber._transcribe_kwargs(settings, "ne", beam_size=5, model_size=model)
+    assert "initial_prompt" not in kwargs
+    assert "hotwords" not in kwargs
+    assert kwargs["temperature"] == 0.0
+    assert kwargs["word_timestamps"] is False
+
+    vanilla = transcriber._transcribe_kwargs(settings, "ne", beam_size=5, model_size="large-v3")
+    assert "initial_prompt" in vanilla
+    assert vanilla["hotwords"] == "Kathmandu"
+    assert vanilla["temperature"] == [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    assert vanilla["word_timestamps"] is True
 
 
 def test_nepali_decoding_uses_fallback_and_hotwords() -> None:
@@ -69,10 +119,40 @@ def test_long_audio_language_detection_samples_three_regions() -> None:
     assert len(transcriber._detection_windows(60.0)) == 1
 
 
+def test_broken_utf8_word_fragments_are_dropped() -> None:
+    segments = [
+        SimpleNamespace(
+            start=0.0,
+            end=1.0,
+            text="नमस्ते प",
+            words=[
+                SimpleNamespace(start=0.0, end=0.5, word="नमस्ते", probability=1.0),
+                SimpleNamespace(start=0.5, end=1.0, word="प�", probability=1.0),
+            ],
+        )
+    ]
+    words = transcriber._build_words(segments, 1.0)
+    assert [word.text for word in words] == ["नमस्ते"]
+
+
 def test_nepali_text_normalisation_cleans_danda_and_zero_width() -> None:
     assert transcriber._normalize_word("नमस्ते​|") == "नमस्ते।"
     assert transcriber._join_words(["नमस्ते", "।", "संसार"]) == "नमस्ते। संसार"
     assert transcriber._join_words(["Hello", ",", "world"]) == "Hello , world"
+    assert transcriber._join_words(["एउटा", "एउटा", "भिडियो"]) == "एउटा भिडियो"
+    assert transcriber._join_words(["नमस्ते", "।।।।", "संसार"]) == "नमस्ते। संसार"
+    assert (
+        transcriber._join_words(["प्रमुख", "त्यति", "विशिष्ट", "अत्यति", "अत्यति"])
+        == "प्रमुख अतिथि, विशिष्ट अतिथि, अतिथि"
+    )
+
+
+def test_nepali_spelling_corrections_fix_non_words_only() -> None:
+    assert transcriber._normalize_word("सटिग।") == "सटीक।"
+    assert transcriber._normalize_word("सवागत") == "स्वागत"
+    assert transcriber._normalize_word("सभादक्ष") == "सभाध्यक्ष"
+    assert transcriber._normalize_word("राम्रो") == "राम्रो"
+    assert transcriber._normalize_word("Kathmandu") == "Kathmandu"
 
 
 def test_hindi_looking_nepali_transcript_is_flagged() -> None:

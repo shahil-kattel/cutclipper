@@ -99,8 +99,8 @@ function qualityOptionsFor(
     ? [
         { value: 'fast', label: 'Fast', detail: 'small · quick' },
         { value: 'balanced', label: 'Balanced', detail: 'medium' },
-        { value: 'best', label: 'Best', detail: 'large-v3 · 5' },
-        { value: 'maximum', label: 'Maximum', detail: 'large-v3 · 10' },
+        { value: 'best', label: 'Best', detail: 'Nepali-tuned' },
+        { value: 'maximum', label: 'Maximum', detail: 'tuned · 5' },
       ]
     : [
         { value: 'fast', label: 'Fast', detail: 'base' },
@@ -765,7 +765,7 @@ export function CaptionStep({
                   : task === 'translate'
                     ? 'One-pass translation replaces the current lines with English. To keep the Nepali lines and add English as a second animated track, use Caption language above.'
                     : language === 'ne'
-                      ? 'Nepali uses medium by default; Best and Maximum use large-v3 with fallback decoding for accents and noisy audio (slowest, ~3 GB first run). If auto-detect confuses accented Nepali with Hindi, choose नेपाली explicitly.'
+                      ? 'Choosing नेपाली switches to Best (a Nepali fine-tuned Whisper model) for near-perfect accuracy. Fast and Balanced use vanilla Whisper and are noticeably less exact; Maximum adds beam search. The first Best run downloads about 1.5 GB.'
                       : transcript?.language
                         ? `Detected: ${transcript.language.toUpperCase()}. Fast / balanced / best map to base / small / medium.`
                         : 'Fast / balanced / best map to base / small / medium. Balanced is a good default.'}

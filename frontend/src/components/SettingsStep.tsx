@@ -67,8 +67,8 @@ function captionQualityOptions(language: string) {
     ? [
         { value: 'fast' as const, label: 'Fast', detail: 'small · quick' },
         { value: 'balanced' as const, label: 'Balanced', detail: 'medium' },
-        { value: 'best' as const, label: 'Best', detail: 'large-v3' },
-        { value: 'maximum' as const, label: 'Maximum', detail: 'large-v3' },
+        { value: 'best' as const, label: 'Best', detail: 'Nepali-tuned' },
+        { value: 'maximum' as const, label: 'Maximum', detail: 'tuned · 5' },
       ]
     : [
         { value: 'fast' as const, label: 'Fast', detail: 'base' },
@@ -689,7 +689,7 @@ export function SettingsStep({
                     {translateCaptions
                       ? 'Whisper translates the spoken audio to English in one pass; the selected style below is applied to the English captions.'
                       : captionLanguage === 'ne'
-                        ? 'Nepali uses medium by default; Best and Maximum use large-v3 with fallback decoding for accents and noisy audio (the most accurate option, but the slowest with a ~3 GB first-run download). If auto-detect picks Hindi for accented Nepali, choose नेपाली explicitly. You can edit and translate lines in the Caption studio before rendering.'
+                        ? 'Choosing नेपाली switches to Best (a Nepali fine-tuned Whisper model) for near-perfect accuracy; Fast and Balanced use vanilla Whisper and are less exact, and Maximum adds beam search. The first Best run downloads about 1.5 GB. If auto-detect picks Hindi for accented Nepali, choose नेपाली explicitly. You can edit and translate lines in the Caption studio before rendering.'
                         : 'Pick नेपाली for dedicated Nepali models. Best and Maximum are the most accurate options; Balanced uses medium.'}
                   </p>
                 </div>

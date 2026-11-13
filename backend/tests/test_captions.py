@@ -218,6 +218,23 @@ def test_words_from_segments_preserve_edited_caption_timing() -> None:
     assert all(word.end > word.start for word in words)
 
 
+def test_nepali_caption_segments_correct_common_asr_mistakes() -> None:
+    words = [
+        Word(0.0, 0.4, "प्रमुख"),
+        Word(0.4, 0.8, "त्यति"),
+        Word(0.8, 1.2, "विशिष्ट"),
+        Word(1.2, 1.6, "अत्यति"),
+        Word(1.6, 2.0, "अत्यति"),
+        Word(2.0, 2.4, "एउटा"),
+        Word(2.4, 2.8, "एउटा"),
+        Word(2.8, 3.2, "भिडियो"),
+    ]
+    segments = build_caption_segments(words)
+    text = " ".join(segment.text for segment in segments)
+    assert "प्रमुख अतिथि, विशिष्ट अतिथि, अतिथि" in text
+    assert "एउटा एउटा" not in text
+
+
 def test_caption_job_requires_upload_and_valid_segments() -> None:
     with pytest.raises(ValidationError):
         CreateJobRequest(mode=JobMode.CAPTIONS, url="https://example.com/video.mp4")

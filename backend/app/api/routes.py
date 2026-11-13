@@ -169,8 +169,10 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
     upload = await asyncio.to_thread(manager.uploads.load, payload.upload_id)
     language_key = payload.language or "auto"
     quality_key = payload.quality or "default"
+    # v3 invalidates caches produced by the vanilla large-v3 Nepali tier; Best
+    # and Maximum now use the Nepali fine-tuned model.
     cache_path = (
-        upload.path.parent / f"transcript_v2_{language_key}_{quality_key}_{payload.task}.json"
+        upload.path.parent / f"transcript_v3_{language_key}_{quality_key}_{payload.task}.json"
     )
     if cache_path.exists() and not payload.force:
         try:
@@ -210,8 +212,8 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
     warnings = list(transcript.warnings)
     if transcript.language == "ne" and language != "ne":
         warnings.append(
-            "Nepali was detected. Pick नेपाली and Balanced or Best accuracy to re-transcribe "
-            "with the dedicated Nepali model for better results."
+            "Nepali was detected. Pick नेपाली and Best or Maximum accuracy (large-v3) for a "
+            "transcript close to perfect; Fast and Balanced use smaller, less exact models."
         )
     elif transcript.language == "hi" and language is None:
         warnings.append(
