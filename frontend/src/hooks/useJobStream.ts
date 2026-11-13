@@ -83,7 +83,9 @@ export function useJobStream(jobId: string | null, enabled: boolean) {
         setConnection('polling')
         applyJob(latest)
         if (TERMINAL.has(latest.status)) {
-          stop()
+          // Mark the stream finished so the poll loop does not schedule
+          // another request after the job is already done.
+          finish()
           return
         }
       } catch {

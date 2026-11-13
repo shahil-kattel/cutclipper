@@ -35,6 +35,7 @@ from app.pipeline.captions import words_from_segments
 from app.pipeline.renderer import ClipRenderer, safe_title_slug
 from app.pipeline.selection import (
     TranscriptionWindow,
+    effective_clip_count,
     plan_transcription_windows,
     select_clips,
 )
@@ -994,14 +995,27 @@ class JobManager:
             return
 
         if metadata.duration > 0:
-            needed = record.settings.clip_count * record.settings.min_clip_seconds
+            # Auto-highlights reduces the count to what actually fits, so only
+            # an explicit even split can be impossible up front.
+            requested = record.settings.clip_count
+            count = effective_clip_count(duration=metadata.duration, settings=record.settings)
+            needed = count * record.settings.min_clip_seconds
             if metadata.duration < needed - 0.2:
                 max_clips = max(1, int(metadata.duration // record.settings.min_clip_seconds))
+                if record.settings.selection_mode.value == "even":
+                    message = (
+                        f"This video is {metadata.duration:.0f}s long. "
+                        f"{requested} clips of at least "
+                        f"{record.settings.min_clip_seconds:.0f}s need {needed:.0f}s. "
+                        f"Reduce the clip count to {max_clips} or lower the minimum length."
+                    )
+                else:
+                    message = (
+                        f"This video is {metadata.duration:.0f}s long, shorter than the "
+                        f"{record.settings.min_clip_seconds:.0f}s minimum clip length."
+                    )
                 raise SelectionError(
-                    f"This video is {metadata.duration:.0f}s long. "
-                    f"{record.settings.clip_count} clips of at least "
-                    f"{record.settings.min_clip_seconds:.0f}s need {needed:.0f}s. "
-                    f"Reduce the clip count to {max_clips} or lower the minimum length.",
+                    message,
                     details={"reason": "video_too_short", "max_clips": max_clips},
                 )
 

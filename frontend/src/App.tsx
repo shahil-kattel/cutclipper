@@ -347,9 +347,20 @@ function AppContent() {
 
   const startRender = useCallback(async () => {
     if (!preview || generationRef.current) return
-    if (settings.clip_count * settings.min_clip_seconds > preview.duration + 0.2) {
+    if (preview.duration > 0 && preview.duration < settings.min_clip_seconds) {
       setGenerationError(
-        'Not enough video for that many clips. Reduce the count or minimum length.',
+        'This video is shorter than the minimum clip length. Lower the minimum length and try again.',
+      )
+      return
+    }
+    // Auto-highlights trims the count to what fits; only an explicit even
+    // split can be impossible before the render starts.
+    if (
+      settings.selection_mode === 'even' &&
+      settings.clip_count * settings.min_clip_seconds > preview.duration + 0.2
+    ) {
+      setGenerationError(
+        'Not enough video for that many clips in an even split. Reduce the count or minimum length, or switch to Auto-highlights.',
       )
       return
     }

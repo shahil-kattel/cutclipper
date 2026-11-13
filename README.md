@@ -46,7 +46,8 @@ Link sources are fetched by the backend. Optional file uploads are stored only i
 - Audio-energy and speech-density analysis.
 - Sentence-edge and silence-boundary snapping.
 - **Auto-highlights** choose the top non-overlapping windows by a blended score of audio energy, speech density, sentence completeness, and scene alignment.
-- Auto mode makes at most **6 clips** and automatically reduces the count when the source cannot fit the requested clips at the chosen minimum length.
+- Auto mode delivers every requested clip (up to 20) and only reduces the count when the source cannot fit them at the chosen minimum length; the results page explains any reduction.
+- Choose **Just clips** or **Clips + subtitles** before the cut starts. Clips-only exports skip the burned-in caption layer and remain re-stylable afterwards.
 - **Partial transcription** for long sources: when the requested outputs cover a small part of the timeline, only the planned highlight windows (energy-scored for auto, target slots for even) are sent to Whisper, and word timestamps are restored to absolute source time.
 - **Evenly split** uses a dynamic program to stay near equal lengths while respecting the requested min/max.
 - If a music-heavy video has no clean pauses, Evenly split transparently falls back to word/scene edges and says so in the results.
@@ -257,9 +258,9 @@ Open **http://localhost:8000** — FastAPI serves the built frontend and the API
 
 1. Choose **Paste a link** or **Upload a file**. Link previews explain when a site requires cookies or sign-in; uploads show file-level progress and validation.
 2. Check the preview card, then choose **Style my clips**.
-3. Pick the clip count, minimum/maximum length, selection mode, aspect ratio, and reframing mode.
-4. Toggle captions or transitions and tune their styles. The phone preview updates live.
-5. Press **Generate**. Progress streams over SSE through fetching, transcribing, highlight selection, reframing, captioning, rendering, and packaging.
+3. Pick **Just clips** or **Clips + subtitles**, then the clip count, minimum/maximum length, selection mode, aspect ratio, and reframing mode.
+4. With subtitles on, tune the language, accuracy, and caption style; transitions are configurable either way. The phone preview updates live.
+5. Press **Generate** (or **Cut** in clips-only mode). Progress streams over SSE through fetching, transcribing, highlight selection, reframing, captioning, rendering, and packaging.
 6. Hover a result card to autoplay it, download clips individually, or download the ZIP. Use **Adjust settings** to re-render or **New video** to start over.
 
 Jobs are kept in `backend/data/jobs/<job-id>` and local uploads in `backend/data/uploads/<upload-id>` (or the Docker `/data` volume). Both are removed after **6 hours** by default. Completed jobs include a ZIP archive; if the prebuilt archive is missing, it is built on demand.

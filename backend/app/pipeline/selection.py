@@ -16,7 +16,7 @@ from app.services.audio import EnergyProfile
 
 MIN_CUT_GAP = 0.06
 _EPSILON = 0.015
-AUTO_MAX_CLIPS = 6
+MAX_CLIPS = 20
 # When the planned windows cover this much of the source, full transcription is
 # cheaper than slicing and keeps the highlight scorer on the whole transcript.
 _FULL_TRANSCRIPTION_COVERAGE = 0.72
@@ -35,16 +35,16 @@ class TranscriptionWindow:
 def effective_clip_count(*, duration: float, settings: ClipSettings) -> int:
     """How many clips the current mode will actually produce.
 
-    Auto mode is capped at six clips and automatically reduced when the source
-    is too short for the requested count. Even mode keeps the user's explicit
-    count (selection will explain if it cannot fit).
+    Auto mode delivers every requested clip that fits (up to 20) and is only
+    reduced when the source is too short for the requested count. Even mode
+    keeps the user's explicit count (selection will explain if it cannot fit).
     """
 
-    requested = max(1, int(settings.clip_count))
+    requested = max(1, min(int(settings.clip_count), MAX_CLIPS))
     min_length = max(0.001, float(settings.min_clip_seconds))
     max_by_duration = max(0, int(duration // min_length))
-    if settings.selection_mode == ClipSelectionMode.AUTO:
-        requested = min(requested, AUTO_MAX_CLIPS)
+    if settings.selection_mode == ClipSelectionMode.EVEN:
+        return requested
     if max_by_duration < 1:
         return requested
     return max(1, min(requested, max_by_duration))
@@ -81,22 +81,18 @@ def select_clips(
     max_length = float(settings.max_clip_seconds)
     if duration <= 0:
         raise SelectionError("The video has no usable duration.")
-    if requested < 1 or requested > 20:
-        raise SelectionError("Choose between 1 and 20 clips.")
+    if requested < 1 or requested > MAX_CLIPS:
+        raise SelectionError(f"Choose between 1 and {MAX_CLIPS} clips.")
 
     auto_warnings: list[str] = []
     if settings.selection_mode == ClipSelectionMode.AUTO:
         count = effective_clip_count(duration=duration, settings=settings)
         if count < requested:
-            capped = min(requested, AUTO_MAX_CLIPS)
-            if requested > AUTO_MAX_CLIPS:
-                auto_warnings.append("Auto-highlights makes at most 6 clips per video.")
             max_by_duration = max(0, int(duration // max(min_length, 0.001)))
-            if 0 < max_by_duration < capped:
-                auto_warnings.append(
-                    f"This video fits at most {max_by_duration} clips of at least "
-                    f"{min_length:.0f}s, so auto mode will make {count}."
-                )
+            auto_warnings.append(
+                f"This video fits at most {max_by_duration} clips of at least "
+                f"{min_length:.0f}s, so auto mode will make {count}."
+            )
     else:
         count = requested
 

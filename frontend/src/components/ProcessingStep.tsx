@@ -18,7 +18,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import type { Job, JobStage } from '../types/api'
 import type { StreamConnection } from '../hooks/useJobStream'
-import { cn, formatDuration } from '../lib/utils'
+import { cn, formatDuration, pluralize } from '../lib/utils'
 import { Button, Pill } from './ui'
 
 const PIPELINE: Array<{ stage: JobStage; label: string; detail: string; icon: LucideIcon }> = [
@@ -121,57 +121,11 @@ const RESTYLE_CAPTION_PIPELINE: Array<{
   },
 ]
 
-const RESTYLE_CLIP_STAGE_INDEX: Record<string, number> = {
-  queued: 0,
-  fetching: 0,
-  probing: 0,
-  reframing: 0,
-  captioning: 0,
-  rendering: 1,
-  packaging: 2,
-  complete: 3,
-  failed: 0,
-  cancelled: 0,
-}
-
-const RESTYLE_CAPTION_STAGE_INDEX: Record<string, number> = {
-  queued: 0,
-  fetching: 0,
-  probing: 0,
-  captioning: 0,
-  rendering: 1,
-  packaging: 2,
-  complete: 3,
-  failed: 0,
-  cancelled: 0,
-}
-
-const STAGE_INDEX: Record<string, number> = {
-  queued: 0,
-  fetching: 0,
-  probing: 0,
-  transcribing: 1,
-  finding_highlights: 2,
-  reframing: 3,
-  captioning: 4,
-  rendering: 5,
-  packaging: 6,
-  complete: 7,
-  failed: 0,
-  cancelled: 0,
-}
-
-const CAPTION_STAGE_INDEX: Record<string, number> = {
-  queued: 0,
-  fetching: 0,
-  probing: 0,
-  transcribing: 1,
-  captioning: 2,
-  rendering: 3,
-  packaging: 4,
-  complete: 5,
-  failed: 0,
-  cancelled: 0,
+// Stages that share a manifest row with another stage.
+const STAGE_ROW_ALIAS: Partial<Record<JobStage, JobStage>> = {
+  queued: 'fetching',
+  probing: 'fetching',
+  captioning: 'reframing',
 }
 
 interface ProcessingStepProps {
@@ -203,23 +157,33 @@ export function ProcessingStep({
   const terminalFailure = job?.status === 'failed' || job?.status === 'cancelled'
   const captionJob = job?.mode === 'captions'
   const restyleJob = job?.is_restyle === true
-  const pipeline = restyleJob
+  const captionsOn = captionJob || job?.settings.captions.enabled !== false
+  const basePipeline = restyleJob
     ? captionJob
       ? RESTYLE_CAPTION_PIPELINE
       : RESTYLE_CLIP_PIPELINE
     : captionJob
       ? CAPTION_PIPELINE
       : PIPELINE
-  const stageIndex = restyleJob
-    ? captionJob
-      ? RESTYLE_CAPTION_STAGE_INDEX
-      : RESTYLE_CLIP_STAGE_INDEX
-    : captionJob
-      ? CAPTION_STAGE_INDEX
-      : STAGE_INDEX
-  const currentIndex = Math.min(pipeline.length, stageIndex[job?.stage ?? 'queued'] ?? 0)
+  // A clips-only export never enters the captioning stage, so drop that row
+  // instead of showing a step that will stay untouched.
+  const pipeline =
+    restyleJob || captionJob || captionsOn
+      ? basePipeline
+      : basePipeline.filter((row) => row.stage !== 'captioning')
   const progress = job?.progress ?? 0
   const isComplete = job?.status === 'completed'
+  const stage = job?.stage ?? 'queued'
+  const directIndex = pipeline.findIndex((row) => row.stage === stage)
+  const alias = STAGE_ROW_ALIAS[stage as JobStage]
+  const aliasIndex = alias ? pipeline.findIndex((row) => row.stage === alias) : -1
+  const currentIndex = isComplete
+    ? pipeline.length
+    : directIndex >= 0
+      ? directIndex
+      : aliasIndex >= 0
+        ? aliasIndex
+        : 0
 
   useEffect(() => {
     if (!job?.created_at) return
@@ -494,7 +458,7 @@ export function ProcessingStep({
             : 'Rendering runs on the server — close this tab or switch apps if you need to. We will keep going.'}
         </span>
         <span className="tabular-nums">
-          {job?.clips.length ?? 0} of {job?.settings.clip_count ?? 0} clips encoded
+          {job?.clips.length ?? 0} {pluralize(job?.clips.length ?? 0, 'clip')} encoded
         </span>
       </motion.div>
     </div>

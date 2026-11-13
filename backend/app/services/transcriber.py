@@ -10,6 +10,7 @@ import re
 import sys
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from threading import Event
@@ -130,6 +131,51 @@ def _next_segment(iterator: Any) -> Any | None:
         return next(iterator)
     except StopIteration:
         return None
+
+
+@dataclass(slots=True)
+class _Engine:
+    """A running transcription and whether it uses the batched pipeline."""
+
+    iterator: Any
+    info: Any
+    batched: bool
+
+
+# CTranslate2's experimental batched decoding can fail part-way through a
+# generator (for example ``IndexError: vector`` while restoring speech
+# timestamps). A failure is only visible when the lazy iterator is advanced, so
+# the engine is drained defensively and restarted sequentially if it breaks.
+_FAILED_BATCHED_ENGINES: set[tuple[str, str, str, int]] = set()
+
+
+async def _close_engine(engine: _Engine | None) -> None:
+    if engine is None:
+        return
+    close = getattr(engine.iterator, "close", None)
+    if close:
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(close)
+
+
+async def _drain_segments(
+    engine: _Engine,
+    segments: list[Any],
+    *,
+    cancel_event: Event,
+    on_segment: Callable[[Any], None] | None = None,
+) -> None:
+    """Advance the lazy decoder, giving the event loop a turn between chunks."""
+
+    while True:
+        if cancel_event.is_set():
+            raise JobCancelledError()
+        segment = await asyncio.to_thread(_next_segment, engine.iterator)
+        if segment is None:
+            return
+        segments.append(segment)
+        if on_segment is not None:
+            on_segment(segment)
 
 
 def _normalize_word(text: str) -> str:
@@ -360,6 +406,30 @@ async def _detect_language(
             temp_path.unlink(missing_ok=True)
 
 
+def _engine_key(
+    model_size: str,
+    device: str,
+    compute_type: str,
+    cpu_threads: int,
+) -> tuple[str, str, str, int]:
+    return (model_size, device, compute_type, cpu_threads)
+
+
+def _start_sequential(
+    model_size: str,
+    device: str,
+    compute_type: str,
+    cpu_threads: int,
+    audio_path: Path,
+    kwargs: dict[str, Any],
+) -> _Engine:
+    """Start the reliable single-stream decoder (and the post-failure resume)."""
+
+    model = _load_model(model_size, device, compute_type, cpu_threads)
+    iterator, info = model.transcribe(str(audio_path), **kwargs)
+    return _Engine(iterator=iterator, info=info, batched=False)
+
+
 def _start_engine(
     model_size: str,
     device: str,
@@ -368,24 +438,26 @@ def _start_engine(
     audio_path: Path,
     duration: float,
     kwargs: dict[str, Any],
-) -> tuple[Any, Any]:
+) -> _Engine:
     """Start a batched transcription when possible, with a sequential fallback."""
 
-    model = _load_model(model_size, device, compute_type, cpu_threads)
-    if duration >= _BATCH_MIN_SECONDS:
+    key = _engine_key(model_size, device, compute_type, cpu_threads)
+    if duration >= _BATCH_MIN_SECONDS and key not in _FAILED_BATCHED_ENGINES:
         try:
             pipeline = _batched_pipeline(model_size, device, compute_type, cpu_threads)
-            return pipeline.transcribe(
+            iterator, info = pipeline.transcribe(
                 str(audio_path),
                 batch_size=_batch_size(device),
                 **kwargs,
             )
+            return _Engine(iterator=iterator, info=info, batched=True)
         except Exception as exc:
             logger.warning(
                 "batched transcription unavailable; using sequential decoding",
                 extra={"error": str(exc)},
             )
-    return model.transcribe(str(audio_path), **kwargs)
+            _FAILED_BATCHED_ENGINES.add(key)
+    return _start_sequential(model_size, device, compute_type, cpu_threads, audio_path, kwargs)
 
 
 async def transcribe_audio(
@@ -421,7 +493,7 @@ async def transcribe_audio(
 
     kwargs = _transcribe_kwargs(settings, selected_language, selected_beam, task)
     try:
-        iterator, info = await asyncio.to_thread(
+        engine = await asyncio.to_thread(
             _start_engine,
             selected_model,
             device,
@@ -439,30 +511,93 @@ async def transcribe_audio(
             details={"error": str(exc)},
         ) from exc
 
-    language = getattr(info, "language", None)
-    language_probability = getattr(info, "language_probability", None)
     segments: list[Any] = []
     if on_progress:
         on_progress(0.05, "Transcribing speech")
 
-    try:
-        while True:
-            if cancel_event.is_set():
-                raise JobCancelledError()
-            segment = await asyncio.to_thread(_next_segment, iterator)
-            if segment is None:
-                break
-            segments.append(segment)
-            if duration > 0:
-                fraction = min(0.97, 0.05 + 0.92 * (float(segment.end) / duration))
-                if on_progress:
-                    on_progress(fraction, "Transcribing speech")
-    finally:
-        close = getattr(iterator, "close", None)
-        if close:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(close)
+    def report_segment(segment: Any) -> None:
+        if on_progress and duration > 0:
+            fraction = min(0.97, 0.05 + 0.92 * (float(segment.end) / duration))
+            on_progress(fraction, "Transcribing speech")
 
+    try:
+        try:
+            await _drain_segments(
+                engine,
+                segments,
+                cancel_event=cancel_event,
+                on_segment=report_segment,
+            )
+        except JobCancelledError:
+            raise
+        except Exception as exc:
+            if not engine.batched:
+                raise ProcessingError(
+                    "Speech transcription failed.",
+                    code="transcription_failed",
+                    retryable=True,
+                    details={"error": str(exc)},
+                ) from exc
+            # The batched decoder is experimental on some backends and can
+            # abort mid-stream. Continue sequentially from the last good
+            # segment so the job never dies from a decoding hiccup.
+            _FAILED_BATCHED_ENGINES.add(
+                _engine_key(
+                    selected_model,
+                    device,
+                    compute_type,
+                    settings.whisper_cpu_threads,
+                )
+            )
+            logger.warning(
+                "batched transcription failed mid-stream; resuming sequentially",
+                extra={"error": f"{type(exc).__name__}: {exc}", "segments": len(segments)},
+            )
+            await _close_engine(engine)
+            resume_at = float(segments[-1].end) if segments else None
+            resume_kwargs = dict(kwargs)
+            if resume_at is not None and 0 < resume_at < duration - 0.1:
+                resume_kwargs["clip_timestamps"] = [max(0.0, resume_at - 0.05), duration]
+            try:
+                engine = await asyncio.to_thread(
+                    _start_sequential,
+                    selected_model,
+                    device,
+                    compute_type,
+                    settings.whisper_cpu_threads,
+                    audio_path,
+                    resume_kwargs,
+                )
+                if on_progress:
+                    on_progress(
+                        (
+                            0.05
+                            if resume_at is None
+                            else min(0.97, 0.05 + 0.92 * resume_at / duration)
+                        ),
+                        "Transcribing speech",
+                    )
+                await _drain_segments(
+                    engine,
+                    segments,
+                    cancel_event=cancel_event,
+                    on_segment=report_segment,
+                )
+            except JobCancelledError:
+                raise
+            except Exception as fallback_exc:
+                raise ProcessingError(
+                    "Speech transcription failed.",
+                    code="transcription_failed",
+                    retryable=True,
+                    details={"error": str(fallback_exc)},
+                ) from fallback_exc
+    finally:
+        await _close_engine(engine)
+
+    info = engine.info
+    language = getattr(info, "language", None)
+    language_probability = getattr(info, "language_probability", None)
     words = _build_words(segments, duration)
     sentences = build_sentences(words)
     warnings: list[str] = []
@@ -598,7 +733,8 @@ async def transcribe_windows(
                     code="audio_slice_failed",
                     details={"stderr": result.stderr[-1000:]},
                 )
-            iterator, info = await asyncio.to_thread(
+            window_kwargs = _transcribe_kwargs(settings, selected_language, selected_beam, task)
+            engine = await asyncio.to_thread(
                 _start_engine,
                 selected_model,
                 device,
@@ -606,16 +742,19 @@ async def transcribe_windows(
                 settings.whisper_cpu_threads,
                 clip_path,
                 window_seconds,
-                _transcribe_kwargs(settings, selected_language, selected_beam, task),
+                window_kwargs,
             )
             segments: list[Any] = []
-            while True:
-                if cancel_event.is_set():
-                    raise JobCancelledError()
-                segment = await asyncio.to_thread(_next_segment, iterator)
-                if segment is None:
-                    break
-                segments.append(segment)
+
+            def report_window_segment(
+                segment: Any,
+                *,
+                index: int = index,
+                completed_seconds: float = completed_seconds,
+                window_seconds: float = window_seconds,
+                total_seconds: float = total_seconds,
+                sections: int = len(bounds),
+            ) -> None:
                 if on_progress and total_seconds > 0:
                     window_fraction = min(1.0, float(getattr(segment, "end", 0.0)) / window_seconds)
                     fraction = (
@@ -623,12 +762,64 @@ async def transcribe_windows(
                     ) / total_seconds
                     on_progress(
                         min(0.97, 0.04 + 0.92 * fraction),
-                        f"Transcribing section {index + 1} of {len(bounds)}",
+                        f"Transcribing section {index + 1} of {sections}",
                     )
-            close = getattr(iterator, "close", None)
-            if close:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(close)
+
+            try:
+                try:
+                    await _drain_segments(
+                        engine,
+                        segments,
+                        cancel_event=cancel_event,
+                        on_segment=report_window_segment,
+                    )
+                except JobCancelledError:
+                    raise
+                except Exception as exc:
+                    if not engine.batched:
+                        raise
+                    _FAILED_BATCHED_ENGINES.add(
+                        _engine_key(
+                            selected_model,
+                            device,
+                            compute_type,
+                            settings.whisper_cpu_threads,
+                        )
+                    )
+                    logger.warning(
+                        "batched window transcription failed; resuming sequentially",
+                        extra={
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "section": index + 1,
+                            "segments": len(segments),
+                        },
+                    )
+                    await _close_engine(engine)
+                    resume_at = float(segments[-1].end) if segments else None
+                    resume_kwargs = dict(window_kwargs)
+                    if resume_at is not None and 0 < resume_at < window_seconds - 0.1:
+                        resume_kwargs["clip_timestamps"] = [
+                            max(0.0, resume_at - 0.05),
+                            window_seconds,
+                        ]
+                    engine = await asyncio.to_thread(
+                        _start_sequential,
+                        selected_model,
+                        device,
+                        compute_type,
+                        settings.whisper_cpu_threads,
+                        clip_path,
+                        resume_kwargs,
+                    )
+                    await _drain_segments(
+                        engine,
+                        segments,
+                        cancel_event=cancel_event,
+                        on_segment=report_window_segment,
+                    )
+            finally:
+                await _close_engine(engine)
+            info = engine.info
             if detected_language is None:
                 detected_language = getattr(info, "language", None)
                 language_probability = getattr(info, "language_probability", None)

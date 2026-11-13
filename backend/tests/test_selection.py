@@ -185,15 +185,12 @@ def test_auto_reduces_clip_count_to_fit_duration() -> None:
     assert any("fits at most 2 clips" in warning for warning in result.warnings)
 
 
-def test_auto_caps_at_six_generated_clips() -> None:
+def test_auto_delivers_every_requested_clip() -> None:
     duration = 240.0
     transcript = make_transcript(duration)
-    energy = make_energy(
-        duration,
-        [(10, 35), (50, 75), (90, 115), (130, 155), (170, 195), (210, 235)],
-    )
+    energy = make_energy(duration, [(10, 235)])
     settings = ClipSettings(clip_count=12, min_clip_seconds=10, max_clip_seconds=25)
-    assert effective_clip_count(duration=duration, settings=settings) == 6
+    assert effective_clip_count(duration=duration, settings=settings) == 12
     result = select_clips(
         duration=duration,
         settings=settings,
@@ -201,8 +198,24 @@ def test_auto_caps_at_six_generated_clips() -> None:
         scenes=[],
         energy=energy,
     )
-    assert len(result.clips) == 6
-    assert any("at most 6 clips" in warning for warning in result.warnings)
+    assert len(result.clips) == 12
+    assert not any("at most" in warning for warning in result.warnings)
+
+
+def test_auto_reduces_to_fit_instead_of_raising_early() -> None:
+    duration = 52.0
+    transcript = make_transcript(duration)
+    settings = ClipSettings(clip_count=4, min_clip_seconds=15, max_clip_seconds=25)
+    assert effective_clip_count(duration=duration, settings=settings) == 3
+    result = select_clips(
+        duration=duration,
+        settings=settings,
+        transcript=transcript,
+        scenes=[],
+        energy=None,
+    )
+    assert len(result.clips) == 3
+    assert any("fits at most 3 clips" in warning for warning in result.warnings)
 
 
 def test_partial_transcription_windows_avoid_the_whole_source() -> None:

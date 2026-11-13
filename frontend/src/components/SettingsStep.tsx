@@ -10,6 +10,7 @@ import {
   Languages,
   Layers,
   Minus,
+  Scissors,
   ScanFace,
   SlidersHorizontal,
   Sparkles,
@@ -158,12 +159,29 @@ export function SettingsStep({
   const evenTooLong =
     settings.selection_mode === 'even' && duration / settings.clip_count > maxLength + 0.2
   const captionsAvailable = preview.has_audio !== false
-  const blocked = tooShort || evenTooLong
-  const issue = tooShort
-    ? `This ${formatDurationLong(duration)} video can fit at most ${maxPossibleClips} clips at a ${Math.round(minLength)}s minimum. Reduce clips or shorten the minimum.`
+  const subtitles = settings.captions.enabled && captionsAvailable
+  // Auto-highlights trims the count to what fits, so only an explicit even
+  // split can be impossible before the render starts.
+  const effectiveCount =
+    settings.selection_mode === 'auto' && maxPossibleClips > 0
+      ? Math.min(settings.clip_count, maxPossibleClips)
+      : settings.clip_count
+  const autoReduced = settings.selection_mode === 'auto' && effectiveCount < settings.clip_count
+  // No mode can make a clip when the whole video is shorter than one clip.
+  const tooShortForOne = duration > 0 && duration < minLength
+  const blocked = tooShortForOne || evenTooLong || (settings.selection_mode === 'even' && tooShort)
+  const issue = tooShortForOne
+    ? `This video is only ${formatDurationLong(duration)} long, shorter than the ${Math.round(minLength)}s minimum clip length. Lower the minimum length to continue.`
     : evenTooLong
       ? `An even split needs ${Math.round(duration / settings.clip_count)}s per clip, above your ${Math.round(maxLength)}s maximum. Raise the maximum, use fewer clips, or switch to Auto-highlights.`
-      : null
+      : settings.selection_mode === 'even' && tooShort
+        ? `This ${formatDurationLong(duration)} video can fit at most ${maxPossibleClips} clips at a ${Math.round(minLength)}s minimum. Reduce clips or shorten the minimum.`
+        : autoReduced
+          ? `Auto-highlights will deliver ${effectiveCount} clips — ${settings.clip_count} clips of at least ${Math.round(minLength)}s don't fit this ${formatDurationLong(duration)} video.`
+          : null
+  const generateLabel = `${subtitles ? 'Generate' : 'Cut'} ${effectiveCount} ${
+    effectiveCount === 1 ? 'clip' : 'clips'
+  }`
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -214,8 +232,39 @@ export function SettingsStep({
           className="min-w-0 space-y-4"
         >
           <SectionCard
+            icon={Scissors}
+            eyebrow="01 · Export"
+            title="Clips only, or clips with subtitles?"
+            description="Choose what gets burned into the video before the cut starts. You can add or remove subtitles later without re-cutting."
+            tone="mustard"
+          >
+            <div role="group" aria-label="Export type" className="grid gap-2.5 sm:grid-cols-2">
+              <ModeButton
+                selected={!subtitles}
+                onClick={() => updateCaptions({ enabled: false })}
+                title="Just clips"
+                copy="Clean MP4s with the original audio and no on-screen text."
+                icon={Scissors}
+              />
+              <ModeButton
+                selected={subtitles}
+                onClick={() => updateCaptions({ enabled: true })}
+                title="Clips + subtitles"
+                copy="Burned-in animated captions timed to every spoken word."
+                icon={Captions}
+                disabled={!captionsAvailable}
+              />
+            </div>
+            {!captionsAvailable ? (
+              <p className="mt-3 rounded-lg border-[1.5px] border-ink/30 bg-mustard-soft px-3.5 py-3 text-xs font-medium leading-relaxed text-ink">
+                This video has no audio track, so clips are exported without subtitles.
+              </p>
+            ) : null}
+          </SectionCard>
+
+          <SectionCard
             icon={WandSparkles}
-            eyebrow="01 · Selection"
+            eyebrow="02 · Selection"
             title="Find the good parts"
             description="Auto-highlights score speech, energy, and scene changes. Even split keeps clips in timeline order."
             tone="tomato"
@@ -226,7 +275,7 @@ export function SettingsStep({
                   <div>
                     <p className="text-[12.5px] font-semibold text-ink">Number of clips</p>
                     <p className="mt-1 text-[11px] text-ink-soft">
-                      Between 1 and 20. Every clip is delivered.
+                      Between 1 and 20. Auto trims the count only when the video is too short.
                     </p>
                   </div>
                   <div className="flex items-center gap-2.5">
@@ -279,9 +328,16 @@ export function SettingsStep({
                     <span>20</span>
                   </div>
                 </div>
-                {tooShort ? (
-                  <p className="mt-2 text-[11px] font-medium leading-5 text-tomato">
-                    Only ~{maxPossibleClips} clips fit at this minimum length.
+                {tooShort && !tooShortForOne ? (
+                  <p
+                    className={cn(
+                      'mt-2 text-[11px] font-medium leading-5',
+                      settings.selection_mode === 'auto' ? 'text-ink-soft' : 'text-tomato',
+                    )}
+                  >
+                    {settings.selection_mode === 'auto'
+                      ? `Auto-highlights will deliver ${effectiveCount} clips at this minimum length.`
+                      : `Only ~${maxPossibleClips} clips fit at this minimum length.`}
                   </p>
                 ) : null}
               </div>
@@ -340,7 +396,7 @@ export function SettingsStep({
 
           <SectionCard
             icon={Crop}
-            eyebrow="02 · Frame"
+            eyebrow="03 · Frame"
             title="Own the frame"
             description="See every clip in full resolution. Smart framing eases around the main face instead of jumping."
             tone="teal"
@@ -448,24 +504,26 @@ export function SettingsStep({
 
           <SectionCard
             icon={Captions}
-            eyebrow="03 · Type"
+            eyebrow="04 · Subtitles"
             title="Words that land"
             description="Burned-in captions use word-level timestamps and phone-safe margins."
             tone="periwinkle"
             action={
-              <Toggle
-                checked={settings.captions.enabled && captionsAvailable}
-                onChange={(checked) => updateCaptions({ enabled: checked })}
-                disabled={!captionsAvailable}
-                label="Animated captions"
-              />
+              <span
+                className={cn(
+                  'rounded border-[1.5px] border-ink px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] shadow-[1px_1px_0_#211d19]',
+                  subtitles ? 'bg-teal-soft text-ink' : 'bg-paper-soft text-ink-soft',
+                )}
+              >
+                {!captionsAvailable ? 'Unavailable' : subtitles ? 'Subtitles on' : 'Just clips'}
+              </span>
             }
           >
             {!captionsAvailable ? (
               <p className="rounded-lg border-[1.5px] border-ink/30 bg-mustard-soft px-3.5 py-3 text-xs font-medium leading-relaxed text-ink">
                 This video has no audio track, so animated captions are unavailable.
               </p>
-            ) : settings.captions.enabled ? (
+            ) : subtitles ? (
               <div className="space-y-4">
                 <div className="rounded-xl border-[1.5px] border-ink/25 bg-paper p-3.5">
                   <div className="flex items-start justify-between gap-3">
@@ -559,15 +617,26 @@ export function SettingsStep({
                 <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />
               </div>
             ) : (
-              <p className="text-xs leading-relaxed text-ink-soft">
-                Captions are off. The export will keep the original audio and framing only.
-              </p>
+              <div className="flex flex-col items-start justify-between gap-3 rounded-xl border-[1.5px] border-dashed border-ink/30 bg-paper-soft px-3.5 py-3 sm:flex-row sm:items-center">
+                <p className="text-xs leading-relaxed text-ink-soft">
+                  Just clips is selected. Your MP4s keep the original audio and framing with no
+                  burned-in text.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Captions}
+                  onClick={() => updateCaptions({ enabled: true })}
+                >
+                  Add subtitles
+                </Button>
+              </div>
             )}
           </SectionCard>
 
           <SectionCard
             icon={Sparkles}
-            eyebrow="04 · Motion"
+            eyebrow="05 · Motion"
             title="Add the polish"
             description="Soft transitions ease viewers between the clip edges and internal cuts."
             tone="mustard"
@@ -688,7 +757,8 @@ export function SettingsStep({
 
           <div className="glass rounded-2xl p-4 lg:hidden">
             <MobileCta
-              settings={settings}
+              label={generateLabel}
+              subtitles={subtitles}
               blocked={blocked}
               generating={generating}
               onGenerate={onGenerate}
@@ -712,14 +782,11 @@ export function SettingsStep({
               iconRight={generating ? undefined : ArrowRight}
               className="w-full"
             >
-              {generating
-                ? 'Starting render'
-                : `Generate ${settings.clip_count} ${settings.clip_count === 1 ? 'clip' : 'clips'}`}
+              {generating ? 'Starting render' : generateLabel}
             </Button>
             <div className="mt-3 flex items-center justify-between text-[10px] text-ink-soft">
               <span>
-                {settings.aspect_ratio} ·{' '}
-                {settings.captions.enabled && captionsAvailable ? 'Captions on' : 'Captions off'}
+                {settings.aspect_ratio} · {subtitles ? 'Subtitles on' : 'Just clips'}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-teal" />
@@ -734,12 +801,14 @@ export function SettingsStep({
 }
 
 function MobileCta({
-  settings,
+  label,
+  subtitles,
   blocked,
   generating,
   onGenerate,
 }: {
-  settings: ClipSettings
+  label: string
+  subtitles: boolean
   blocked: boolean
   generating: boolean
   onGenerate: () => void
@@ -754,12 +823,10 @@ function MobileCta({
         iconRight={generating ? undefined : ArrowRight}
         className="w-full"
       >
-        {generating
-          ? 'Starting render'
-          : `Generate ${settings.clip_count} ${settings.clip_count === 1 ? 'clip' : 'clips'}`}
+        {generating ? 'Starting render' : label}
       </Button>
       <p className="mt-2.5 text-center text-[10px] text-ink-soft">
-        Clean MP4 exports · no watermarks · no usage limits
+        {subtitles ? 'Burned-in subtitles' : 'Just clips'} · clean MP4 · no watermarks
       </p>
     </>
   )
@@ -771,21 +838,23 @@ function ModeButton({
   title,
   copy,
   icon: Icon,
+  disabled = false,
 }: {
   selected: boolean
   onClick: () => void
   title: string
   copy: string
   icon: LucideIcon
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
       aria-pressed={selected}
-
+      disabled={disabled}
       onClick={onClick}
       className={cn(
-        'relative flex items-start gap-3 rounded-xl border p-3.5 text-left transition duration-200',
+        'relative flex items-start gap-3 rounded-xl border p-3.5 text-left transition duration-200 disabled:cursor-not-allowed disabled:opacity-50',
         selected
           ? 'border-[1.5px] border-ink bg-periwinkle-soft shadow-[2px_3px_0_#211d19]'
           : 'border-[1.5px] border-ink/25 bg-paper-soft hover:-translate-y-0.5 hover:border-ink hover:bg-mustard-soft/40',
@@ -916,7 +985,7 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
           <PreviewTag>
             {settings.captions.enabled
               ? (settings.captions.word_style ?? settings.captions.line_style ?? 'No motion')
-              : 'No captions'}
+              : 'Just clips'}
           </PreviewTag>
           <PreviewTag>{settings.selection_mode === 'auto' ? 'Auto cuts' : 'Even split'}</PreviewTag>
           <PreviewTag>{settings.aspect_ratio}</PreviewTag>

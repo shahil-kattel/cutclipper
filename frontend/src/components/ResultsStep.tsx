@@ -108,7 +108,9 @@ export function ResultsStep({
               icon={Palette}
               aria-expanded={false}
             >
-              Edit captions before export
+              {captionMode || job.settings.captions.enabled
+                ? 'Edit captions before export'
+                : 'Add subtitles'}
             </Button>
           ) : null}
           {canEditSettings ? (
