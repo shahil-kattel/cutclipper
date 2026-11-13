@@ -22,6 +22,8 @@ import {
 import type {
   CaptionSegment,
   CaptionSettings,
+  ExportQuality,
+  ExportResolution,
   PreviewResponse,
   TranscriptResponse,
   TranscriptionQuality,
@@ -49,6 +51,10 @@ interface CaptionStepProps {
   onTaskChange: (task: TranscriptionTask) => void
   onTranscribe: (force: boolean, task?: TranscriptionTask) => void
   onSegmentsChange: (segments: CaptionSegment[]) => void
+  exportResolution: ExportResolution
+  exportQuality: ExportQuality
+  onExportResolutionChange: (resolution: ExportResolution) => void
+  onExportQualityChange: (quality: ExportQuality) => void
   captions: CaptionSettings
   onCaptionsChange: (captions: CaptionSettings) => void
   onBack: () => void
@@ -61,6 +67,17 @@ const LANGUAGES = [
   { value: 'en', label: 'English' },
   { value: 'ne', label: 'नेपाली · Nepali' },
   { value: 'hi', label: 'हिन्दी · Hindi' },
+]
+
+const EXPORT_RESOLUTIONS: Array<{ value: ExportResolution; label: string; detail: string }> = [
+  { value: '1080p', label: '1080p', detail: 'Source size' },
+  { value: '4k', label: '4K', detail: 'Upscale' },
+]
+
+const EXPORT_QUALITIES: Array<{ value: ExportQuality; label: string; detail: string }> = [
+  { value: 'high', label: 'High', detail: 'Balanced' },
+  { value: 'maximum', label: 'Max', detail: 'Near-lossless' },
+  { value: 'lossless', label: 'Lossless', detail: 'No compression' },
 ]
 
 function qualityOptionsFor(
@@ -102,6 +119,10 @@ export function CaptionStep({
   onTaskChange,
   onTranscribe,
   onSegmentsChange,
+  exportResolution,
+  exportQuality,
+  onExportResolutionChange,
+  onExportQualityChange,
   captions,
   onCaptionsChange,
   onBack,
@@ -458,6 +479,70 @@ export function CaptionStep({
               settings={captions}
               onChange={(patch) => onCaptionsChange({ ...captions, ...patch })}
             />
+
+            <div className="mt-5 rounded-xl border-[1.5px] border-ink/25 bg-paper p-3.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11.5px] font-semibold text-ink">Export size &amp; quality</p>
+                <span className="rounded border border-ink bg-paper-soft px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.1em] text-ink-soft">
+                  {exportResolution === '4k' ? '4K' : '1080p'} · {exportQuality}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium text-ink-soft">Resolution</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {EXPORT_RESOLUTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={exportResolution === option.value}
+                        onClick={() => onExportResolutionChange(option.value)}
+                        className={cn(
+                          'rounded-lg border px-1.5 py-1.5 text-[10.5px] font-medium transition',
+                          exportResolution === option.value
+                            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                        )}
+                      >
+                        {option.label}
+                        <span className="mt-0.5 block text-[8px] uppercase tracking-[0.1em] text-ink-faint">
+                          {option.detail}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium text-ink-soft">Video quality</p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {EXPORT_QUALITIES.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={exportQuality === option.value}
+                        onClick={() => onExportQualityChange(option.value)}
+                        className={cn(
+                          'rounded-lg border px-1 py-1.5 text-[10px] font-medium transition',
+                          exportQuality === option.value
+                            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                        )}
+                      >
+                        {option.label}
+                        <span className="mt-0.5 block text-[7.5px] uppercase tracking-[0.06em] text-ink-faint">
+                          {option.detail}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <p className="mt-2 text-[10px] leading-4 text-ink-faint">
+                1080p keeps the source size; 4K upscales smaller videos to a 2160-pixel short edge.
+                Lossless video (CRF 0) is bit-exact but much larger, slower, and not accepted by
+                every social platform.
+              </p>
+            </div>
 
             <div className="mt-5 space-y-4 rounded-xl border-[1.5px] border-ink/25 bg-paper p-3.5">
               <div className="grid gap-3 sm:grid-cols-2">

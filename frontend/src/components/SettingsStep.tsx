@@ -19,6 +19,8 @@ import type { LucideIcon } from 'lucide-react'
 import type {
   AspectRatio,
   ClipSettings,
+  ExportQuality,
+  ExportResolution,
   PreviewResponse,
   ReframeMode,
   TranscriptionQuality,
@@ -94,6 +96,25 @@ const REFRAME_MODES: Array<{
     copy: 'A steady, predictable center window that fills the frame.',
     icon: Crop,
   },
+]
+
+const RESOLUTION_OPTIONS: Array<{
+  value: ExportResolution
+  label: string
+  detail: string
+}> = [
+  { value: '1080p', label: '1080p', detail: 'Fast · compact' },
+  { value: '4k', label: '4K UHD', detail: '2160px · slower' },
+]
+
+const QUALITY_OPTIONS: Array<{
+  value: ExportQuality
+  label: string
+  detail: string
+}> = [
+  { value: 'high', label: 'High', detail: 'Balanced' },
+  { value: 'maximum', label: 'Maximum', detail: 'Near-lossless' },
+  { value: 'lossless', label: 'Lossless', detail: 'No compression' },
 ]
 
 const TRANSITION_STYLES: Array<{ value: TransitionStyle; label: string; glyph: string }> = [
@@ -254,6 +275,70 @@ export function SettingsStep({
                 This video has no audio track, so clips are exported without subtitles.
               </p>
             ) : null}
+
+            <div className="mt-5 grid gap-4 border-t border-dashed border-ink/20 pt-5 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 text-[12.5px] font-semibold text-ink">Resolution</p>
+                <div role="group" aria-label="Export resolution" className="grid grid-cols-2 gap-2">
+                  {RESOLUTION_OPTIONS.map((option) => {
+                    const selected = settings.resolution === option.value
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => update({ resolution: option.value })}
+                        className={cn(
+                          'rounded-lg border px-2.5 py-2 text-left transition',
+                          selected
+                            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                        )}
+                      >
+                        <span className="block text-[12px] font-semibold">{option.label}</span>
+                        <span className="mt-0.5 block text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+                          {option.detail}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 text-[12.5px] font-semibold text-ink">Video quality</p>
+                <div role="group" aria-label="Export quality" className="grid grid-cols-3 gap-1.5">
+                  {QUALITY_OPTIONS.map((option) => {
+                    const selected = settings.export_quality === option.value
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => update({ export_quality: option.value })}
+                        className={cn(
+                          'rounded-lg border px-1.5 py-2 text-center transition',
+                          selected
+                            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                        )}
+                      >
+                        <span className="block text-[11px] font-semibold">{option.label}</span>
+                        <span className="mt-0.5 block text-[8px] uppercase tracking-[0.08em] text-ink-faint">
+                          {option.detail}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+            <p className="mt-2.5 text-[10px] leading-4 text-ink-faint">
+              {settings.export_quality === 'lossless'
+                ? 'Lossless video (CRF 0) keeps every pixel but uses software encoding, can produce multi-GB files, and some social platforms reject lossless H.264. Use Maximum for near-lossless uploads.'
+                : settings.resolution === '4k'
+                  ? '4K exports render about twice as long and create much larger files. Choose Lossless for a bit-exact video stream.'
+                  : 'High is visually clean for social. Pick 4K for a 2160-pixel-wide master.'}
+            </p>
           </SectionCard>
 
           <SectionCard
@@ -780,7 +865,8 @@ export function SettingsStep({
             </Button>
             <div className="mt-3 flex items-center justify-between text-[10px] text-ink-soft">
               <span>
-                {settings.aspect_ratio} · {subtitles ? 'Subtitles on' : 'Just clips'}
+                {settings.aspect_ratio} · {settings.resolution === '4k' ? '4K' : '1080p'} ·{' '}
+                {subtitles ? 'Subtitles on' : 'Just clips'}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-teal" />
@@ -967,6 +1053,10 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
           </PreviewTag>
           <PreviewTag>{settings.selection_mode === 'auto' ? 'Auto cuts' : 'Even split'}</PreviewTag>
           <PreviewTag>{settings.aspect_ratio}</PreviewTag>
+          <PreviewTag>{settings.resolution === '4k' ? '4K' : '1080p'}</PreviewTag>
+          {settings.export_quality !== 'high' ? (
+            <PreviewTag>{settings.export_quality}</PreviewTag>
+          ) : null}
         </div>
       </div>
     </div>

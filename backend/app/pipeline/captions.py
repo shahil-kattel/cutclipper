@@ -576,6 +576,14 @@ def build_ass(
     base_colour = settings.color
     active_colour = settings.highlight_color
     width, height = output_size
+    # Presets are authored against a 1080-wide canvas. Scale type metrics with
+    # the output size so a 4K export keeps the same relative caption size.
+    scale = max(0.1, min(width, height) / 1080)
+    font_size = max(1, round(settings.font_size * scale))
+    letter_spacing = settings.letter_spacing * scale
+    word_spacing = settings.word_spacing * scale
+    outline_width = settings.outline_width * scale
+    shadow = settings.shadow * scale
     clip_end = clip_start + clip_duration
     refs: list[_WordRef] = []
     for word in words:
@@ -594,15 +602,15 @@ def build_ass(
 
     groups = _make_groups(
         refs,
-        font_size=settings.font_size,
+        font_size=font_size,
         target_width=width,
-        letter_spacing=settings.letter_spacing,
-        word_spacing=settings.word_spacing,
+        letter_spacing=letter_spacing,
+        word_spacing=word_spacing,
     )
     x, y, alignment = _position(settings.position, width, height)
     word_style = settings.word_style
     line_style = settings.line_style
-    separator = _separator(settings.word_spacing, settings.letter_spacing)
+    separator = _separator(word_spacing, letter_spacing)
     caption_font = _caption_font_for(refs, settings.font)
     bold = -1 if settings.font_style in (CaptionFontStyle.BOLD, CaptionFontStyle.BOLD_ITALIC) else 0
     italic = (
@@ -619,7 +627,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: CutClipper,{caption_font},{settings.font_size},{_ass_colour(settings.color)},&H000000FF,&H00000000,&H80000000,{bold},{italic},0,0,100,100,{settings.letter_spacing:.1f},0,1,{settings.outline_width:.1f},{settings.shadow:.1f},{alignment},0,0,0,1
+Style: CutClipper,{caption_font},{font_size},{_ass_colour(settings.color)},&H000000FF,&H00000000,&H80000000,{bold},{italic},0,0,100,100,{letter_spacing:.1f},0,1,{outline_width:.1f},{shadow:.1f},{alignment},0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -656,8 +664,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             word_style=word_style,
             base_colour=base_colour,
             active_colour=active_colour,
-            outline_width=settings.outline_width,
-            shadow=settings.shadow,
+            outline_width=outline_width,
+            shadow=shadow,
             separator=separator,
             reveal_before=reveal_before,
         )
@@ -676,9 +684,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     rectangle = _box_rectangle(
                         group,
                         word_index,
-                        font_size=settings.font_size,
-                        letter_spacing=settings.letter_spacing,
-                        word_spacing=settings.word_spacing,
+                        font_size=font_size,
+                        letter_spacing=letter_spacing,
+                        word_spacing=word_spacing,
                         x=x,
                         y=y,
                         alignment=alignment,
@@ -721,9 +729,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     rectangle = _box_rectangle(
                         group,
                         word_index,
-                        font_size=settings.font_size,
-                        letter_spacing=settings.letter_spacing,
-                        word_spacing=settings.word_spacing,
+                        font_size=font_size,
+                        letter_spacing=letter_spacing,
+                        word_spacing=word_spacing,
                         x=x,
                         y=y,
                         alignment=alignment,

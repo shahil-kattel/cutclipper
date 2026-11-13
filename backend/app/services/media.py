@@ -317,52 +317,107 @@ async def probe_media(path: str, *, timeout: int = 45, user_agent: str | None = 
     return await asyncio.to_thread(probe_media_sync, path, timeout=timeout, user_agent=user_agent)
 
 
-def encoder_args(tools: MediaTools, settings: Settings) -> list[str]:
+def _bitrate_mbps(value: str) -> float:
+    text = (value or "").strip().lower()
+    try:
+        if text.endswith("m"):
+            return float(text[:-1])
+        if text.endswith("k"):
+            return float(text[:-1]) / 1000
+        return float(text) / 1_000_000
+    except ValueError:
+        return 8.0
+
+
+def audio_bitrate_for(quality: str) -> str:
+    return "320k" if quality in {"maximum", "lossless"} else "192k"
+
+
+def encoder_args(
+    tools: MediaTools,
+    settings: Settings,
+    *,
+    width: int = 1080,
+    height: int = 1920,
+    quality: str = "high",
+) -> list[str]:
+    """Video encoder arguments for an export size and quality tier.
+
+    ``lossless`` always uses software x264 (``-crf 0``) because the hardware
+    encoders cannot produce a bit-exact stream.
+    """
+
+    if quality == "lossless":
+        return [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "0",
+            "-tune",
+            "film",
+        ]
+
+    # Hardware encoders need a bitrate. Scale the configured 1080p bitrate with
+    # the output pixel count so 4K keeps the same bits-per-pixel.
+    pixels = max(1, width * height)
+    reference_pixels = 1080 * 1920
+    scale = max(0.35, pixels / reference_pixels)
+    multiplier = 2.0 if quality == "maximum" else 1.0
+    bitrate_mbps = min(200.0, max(4.0, _bitrate_mbps(settings.output_bitrate) * scale * multiplier))
+    bitrate = f"{bitrate_mbps:.0f}M"
+    bufsize = f"{max(8, round(bitrate_mbps * 2))}M"
+
     if tools.video_encoder == "h264_videotoolbox":
         return [
             "-c:v",
             "h264_videotoolbox",
             "-b:v",
-            settings.output_bitrate,
+            bitrate,
             "-maxrate",
-            settings.output_bitrate,
+            bitrate,
             "-bufsize",
-            "16M",
+            bufsize,
             "-allow_sw",
             "1",
             "-profile:v",
             "high",
         ]
     if tools.video_encoder == "h264_nvenc":
+        cq = 18 if quality == "maximum" else settings.output_crf
         return [
             "-c:v",
             "h264_nvenc",
             "-preset",
-            "p5",
+            "p7" if quality == "maximum" else "p5",
             "-rc",
             "vbr",
             "-cq",
-            str(settings.output_crf),
+            str(cq),
             "-b:v",
-            settings.output_bitrate,
+            bitrate,
             "-maxrate",
-            settings.output_bitrate,
+            bitrate,
             "-bufsize",
-            "16M",
+            bufsize,
             "-profile:v",
             "high",
         ]
+    crf = settings.output_crf
+    preset = "medium"
+    if quality == "maximum":
+        crf = max(14, settings.output_crf - 6)
+        preset = "slow"
     return [
         "-c:v",
         "libx264",
         "-preset",
-        "medium",
+        preset,
         "-crf",
-        str(settings.output_crf),
+        str(crf),
         "-profile:v",
         "high",
-        "-level",
-        "4.1",
         "-tune",
         "film",
     ]

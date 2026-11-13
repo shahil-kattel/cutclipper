@@ -17,6 +17,7 @@ from app.pipeline.types import ClipPlan, Transcript
 from app.schemas import (
     AspectRatio,
     ClipSettings,
+    ExportResolution,
     JobStage,
     ReframeMode,
     TransitionSettings,
@@ -26,6 +27,7 @@ from app.services.faces import FaceTrack, probe_faces_present, track_faces
 from app.services.media import (
     MediaInfo,
     MediaTools,
+    audio_bitrate_for,
     encoder_args,
     escape_filter_path,
     filter_fonts_dir,
@@ -67,8 +69,14 @@ def safe_title_slug(title: str, limit: int = 46) -> str:
     return slug or "clip"
 
 
-def output_dimensions(aspect: AspectRatio) -> tuple[int, int]:
-    return ASPECT_DIMENSIONS[aspect]
+def output_dimensions(
+    aspect: AspectRatio,
+    resolution: ExportResolution = ExportResolution.HD,
+) -> tuple[int, int]:
+    width, height = ASPECT_DIMENSIONS[aspect]
+    if resolution == ExportResolution.UHD_4K:
+        return width * 2, height * 2
+    return width, height
 
 
 def _crop_dimensions(
@@ -378,7 +386,14 @@ class ClipRenderer:
         if self.cancel_event.is_set():
             raise JobCancelledError()
         duration = plan.duration
-        width, height = output_dimensions(self.clip_settings.aspect_ratio)
+        width, height = output_dimensions(
+            self.clip_settings.aspect_ratio,
+            self.clip_settings.resolution,
+        )
+        quality = self.clip_settings.export_quality.value
+        render_timeout = self.settings.render_timeout_seconds * (
+            2 if width >= 2160 or height >= 2160 else 1
+        )
         reframe_mode = self.clip_settings.reframe_mode
         if reframe_mode == ReframeMode.BLUR:
             # Blur-fit padding is retired. Older clients that still send it
@@ -511,13 +526,15 @@ class ClipRenderer:
             video_label=video_label,
             audio_map=audio_map,
             force_encoder=None,
+            output_size=(width, height),
+            quality=quality,
         )
         result = None
         try:
             result = await run_process(
                 command,
                 cancel_event=self.cancel_event,
-                timeout_seconds=self.settings.render_timeout_seconds,
+                timeout_seconds=render_timeout,
                 cwd=self.work_dir,
                 on_stdout_line=handle_progress_line,
             )
@@ -553,12 +570,14 @@ class ClipRenderer:
                 video_label=video_label,
                 audio_map=audio_map,
                 force_encoder="libx264",
+                output_size=(width, height),
+                quality=quality,
             )
             try:
                 result = await run_process(
                     command,
                     cancel_event=self.cancel_event,
-                    timeout_seconds=self.settings.render_timeout_seconds,
+                    timeout_seconds=render_timeout,
                     cwd=self.work_dir,
                     on_stdout_line=handle_progress_line,
                 )
@@ -641,6 +660,8 @@ class ClipRenderer:
         video_label: str,
         audio_map: str | None,
         force_encoder: str | None,
+        output_size: tuple[int, int],
+        quality: str,
     ) -> list[str]:
         tools = self.tools
         if force_encoder:
@@ -671,10 +692,29 @@ class ClipRenderer:
         if audio_map:
             command.extend(["-map", audio_map])
         command.extend(["-t", f"{plan.duration:.3f}"])
-        command.extend(encoder_args(tools, self.settings))
+        command.extend(
+            encoder_args(
+                tools,
+                self.settings,
+                width=output_size[0],
+                height=output_size[1],
+                quality=quality,
+            )
+        )
         command.extend(["-pix_fmt", "yuv420p", "-fps_mode", "cfr"])
         if self.media.has_audio and audio_map:
-            command.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"])
+            command.extend(
+                [
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    audio_bitrate_for(quality),
+                    "-ar",
+                    "48000",
+                    "-ac",
+                    "2",
+                ]
+            )
         else:
             command.append("-an")
         command.extend(

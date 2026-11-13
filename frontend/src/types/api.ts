@@ -1,6 +1,8 @@
 export type SelectionMode = 'auto' | 'even'
 export type AspectRatio = '9:16' | '1:1' | '4:5'
 export type ReframeMode = 'smart' | 'center'
+export type ExportResolution = '1080p' | '4k'
+export type ExportQuality = 'high' | 'maximum' | 'lossless'
 export type CaptionStyle =
   | 'karaoke'
   | 'pop'
@@ -72,6 +74,8 @@ export interface ClipSettings {
   max_clip_seconds: number
   selection_mode: SelectionMode
   aspect_ratio: AspectRatio
+  resolution: ExportResolution
+  export_quality: ExportQuality
   reframe_mode: ReframeMode
   captions: CaptionSettings
   transitions: TransitionSettings

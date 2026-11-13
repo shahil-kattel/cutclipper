@@ -31,6 +31,8 @@ import type {
   CaptionSegment,
   CaptionSettings,
   ClipSettings,
+  ExportQuality,
+  ExportResolution,
   Job,
   PreviewResponse,
   TranscriptResponse,
@@ -60,6 +62,8 @@ function AppContent() {
   )
   const [captionLanguage, setCaptionLanguage] = useState('auto')
   const [captionQuality, setCaptionQuality] = useState<TranscriptionQuality>('balanced')
+  const [captionResolution, setCaptionResolution] = useState<ExportResolution>('1080p')
+  const [captionExportQuality, setCaptionExportQuality] = useState<ExportQuality>('high')
   const [captionTask, setCaptionTask] = useState<TranscriptionTask>('transcribe')
   const [clipLanguage, setClipLanguage] = useState('auto')
   const [clipQuality, setClipQuality] = useState<TranscriptionQuality>('balanced')
@@ -426,6 +430,8 @@ function AppContent() {
     handledStatus.current = null
     const renderSettings: ClipSettings = {
       ...structuredClone(DEFAULT_SETTINGS),
+      resolution: captionResolution,
+      export_quality: captionExportQuality,
       captions: { ...captionSettings, enabled: true },
     }
     setSettings(renderSettings)
@@ -452,7 +458,15 @@ function AppContent() {
       generationRef.current = false
       setGenerating(false)
     }
-  }, [captionLanguage, captionSegments, captionSettings, preview, toast])
+  }, [
+    captionExportQuality,
+    captionLanguage,
+    captionResolution,
+    captionSegments,
+    captionSettings,
+    preview,
+    toast,
+  ])
 
   const retryRender = useCallback(async () => {
     if (createdJob?.is_restyle && restyleParent) {
@@ -545,6 +559,8 @@ function AppContent() {
     setCaptionSettings(structuredClone(DEFAULT_SETTINGS.captions))
     setCaptionLanguage('auto')
     setCaptionQuality('balanced')
+    setCaptionResolution('1080p')
+    setCaptionExportQuality('high')
     setCaptionTask('transcribe')
     setClipLanguage('auto')
     setClipQuality('balanced')
@@ -652,6 +668,10 @@ function AppContent() {
                     }
                   }}
                   onSegmentsChange={setCaptionSegments}
+                  exportResolution={captionResolution}
+                  exportQuality={captionExportQuality}
+                  onExportResolutionChange={setCaptionResolution}
+                  onExportQualityChange={setCaptionExportQuality}
                   captions={captionSettings}
                   onCaptionsChange={setCaptionSettings}
                   onBack={backToLink}

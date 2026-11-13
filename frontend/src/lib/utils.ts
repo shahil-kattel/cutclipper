@@ -44,6 +44,8 @@ export const DEFAULT_SETTINGS: ClipSettings = {
   max_clip_seconds: 60,
   selection_mode: 'auto',
   aspect_ratio: '9:16',
+  resolution: '1080p',
+  export_quality: 'high',
   reframe_mode: 'smart',
   captions: {
     enabled: true,

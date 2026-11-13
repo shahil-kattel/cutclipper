@@ -49,6 +49,17 @@ class ReframeMode(StrEnum):
     BLUR = "blur"
 
 
+class ExportResolution(StrEnum):
+    HD = "1080p"
+    UHD_4K = "4k"
+
+
+class ExportQuality(StrEnum):
+    HIGH = "high"
+    MAXIMUM = "maximum"
+    LOSSLESS = "lossless"
+
+
 class CaptionStyle(StrEnum):
     KARAOKE = "karaoke"
     POP = "pop"
@@ -237,6 +248,8 @@ class ClipSettings(BaseModel):
     max_clip_seconds: float = Field(default=60, ge=5, le=180)
     selection_mode: ClipSelectionMode = ClipSelectionMode.AUTO
     aspect_ratio: AspectRatio = AspectRatio.VERTICAL
+    resolution: ExportResolution = ExportResolution.HD
+    export_quality: ExportQuality = ExportQuality.HIGH
     reframe_mode: ReframeMode = ReframeMode.SMART
     captions: CaptionSettings = Field(default_factory=CaptionSettings)
     transitions: TransitionSettings = Field(default_factory=TransitionSettings)

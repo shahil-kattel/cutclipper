@@ -83,8 +83,9 @@ Link sources are fetched by the backend. Optional file uploads are stored only i
 - All implemented with FFmpeg filters; no extra processing services.
 
 ### Export
-- H.264 High profile, AAC 192 kbps, `yuv420p`, faststart, 30 fps, metadata stripped.
-- 1080-wide social masters.
+- H.264 High profile, AAC (192 kbps High, 320 kbps Maximum/Lossless), `yuv420p`, faststart, 30 fps, metadata stripped.
+- **1080p** social masters by default, or **4K UHD** (2160-wide vertical/square/portrait) when you need a high-resolution master. The Caption studio keeps the source size at 1080p and upscales smaller videos to 4K when selected.
+- **Quality tiers:** High (CRF 20, or pixel-scaled hardware bitrate), Maximum (CRF 14 / double bitrate), and **Lossless video** (x264 CRF 0, software-encoded). Lossless is bit-exact for the composited frames but produces multi-gigabyte files, uses the High 4:4:4 Predictive profile, and is rejected by some social platforms; use Maximum for near-lossless uploads. Audio remains AAC 320 kbps.
 - Jobs run on the server. Closing the tab, switching apps, or reloading is safe: the render continues, and the app reconnects to the active job (or restores the finished export) when you come back.
 - Browser preview and per-clip download.
 - Server-built ZIP archive for all clips.

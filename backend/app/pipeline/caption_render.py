@@ -13,10 +13,11 @@ from app.config import Settings
 from app.core.errors import JobCancelledError, ProcessingError
 from app.pipeline.captions import build_ass
 from app.pipeline.types import Word
-from app.schemas import CaptionSettings
+from app.schemas import CaptionSettings, ExportResolution
 from app.services.media import (
     MediaInfo,
     MediaTools,
+    audio_bitrate_for,
     encoder_args,
     escape_filter_path,
     filter_fonts_dir,
@@ -100,6 +101,7 @@ def _build_command(
     width: int,
     height: int,
     work_dir: Path,
+    quality: str,
 ) -> list[str]:
     # Relative references keep apostrophes in installation paths out of the
     # quoted filtergraph value; the command runs with cwd=work_dir.
@@ -127,11 +129,22 @@ def _build_command(
     ]
     if media.has_audio:
         command.extend(
-            ["-map", "0:a:0?", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
+            [
+                "-map",
+                "0:a:0?",
+                "-c:a",
+                "aac",
+                "-b:a",
+                audio_bitrate_for(quality),
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+            ]
         )
     else:
         command.append("-an")
-    command.extend(encoder_args(tools, settings))
+    command.extend(encoder_args(tools, settings, width=width, height=height, quality=quality))
     command.extend(
         [
             "-pix_fmt",
@@ -165,6 +178,8 @@ async def render_captioned_video(
     output_dir: Path,
     cancel_event: Event,
     on_progress: Callable[[float], None],
+    resolution: ExportResolution = ExportResolution.HD,
+    quality: str = "high",
 ) -> RenderedCaption:
     """Burn captions onto the full source video while preserving its aspect ratio."""
 
@@ -177,6 +192,13 @@ async def render_captioned_video(
         )
 
     width, height = _even(media.width), _even(media.height)
+    if resolution == ExportResolution.UHD_4K:
+        # Preserve the source aspect ratio and only ever upscale: exporting a
+        # 4K source at the default setting must not quietly downscale it.
+        upscale = max(1.0, 2160 / max(1, min(width, height)))
+        width = _even(round(width * upscale))
+        height = _even(round(height * upscale))
+    render_timeout = settings.render_timeout_seconds * (2 if max(width, height) >= 2160 else 1)
     ass_path = work_dir / "captions" / "full.ass"
     caption_result = build_ass(
         words,
@@ -219,12 +241,13 @@ async def render_captioned_video(
         width=width,
         height=height,
         work_dir=work_dir,
+        quality=quality,
     )
     try:
         result = await run_process(
             command,
             cancel_event=cancel_event,
-            timeout_seconds=settings.render_timeout_seconds,
+            timeout_seconds=render_timeout,
             cwd=work_dir,
             on_stdout_line=handle_progress_line,
         )
@@ -261,12 +284,13 @@ async def render_captioned_video(
             width=width,
             height=height,
             work_dir=work_dir,
+            quality=quality,
         )
         try:
             result = await run_process(
                 command,
                 cancel_event=cancel_event,
-                timeout_seconds=settings.render_timeout_seconds,
+                timeout_seconds=render_timeout,
                 cwd=work_dir,
                 on_stdout_line=handle_progress_line,
             )

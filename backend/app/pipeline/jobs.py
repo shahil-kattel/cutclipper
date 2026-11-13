@@ -661,6 +661,8 @@ class JobManager:
                 output_dir=outputs,
                 cancel_event=cancel,
                 on_progress=render_progress,
+                resolution=record.settings.resolution,
+                quality=record.settings.export_quality.value,
             )
             record.warnings = [
                 warning
@@ -917,6 +919,8 @@ class JobManager:
             output_dir=outputs,
             cancel_event=cancel,
             on_progress=render_progress,
+            resolution=record.settings.resolution,
+            quality=record.settings.export_quality.value,
         )
         if rendered.warnings:
             self._update(record, warnings=rendered.warnings)
