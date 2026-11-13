@@ -689,7 +689,7 @@ export function SettingsStep({
                     {translateCaptions
                       ? 'Whisper translates the spoken audio to English in one pass; the selected style below is applied to the English captions.'
                       : captionLanguage === 'ne'
-                        ? 'Choosing नेपाली switches to Best (a Nepali fine-tuned Whisper model) for near-perfect accuracy; Fast and Balanced use vanilla Whisper and are less exact, and Maximum adds beam search. The first Best run downloads about 1.5 GB. If auto-detect picks Hindi for accented Nepali, choose नेपाली explicitly. You can edit and translate lines in the Caption studio before rendering.'
+                        ? 'Choosing नेपाली switches to Best (a Nepali fine-tuned Whisper model) for near-perfect accuracy; English words mixed into the speech stay in Latin script while Nepali stays in Devanagari. Fast and Balanced use vanilla Whisper and are less exact, and Maximum adds beam search. The first Best run downloads about 1.5 GB. If auto-detect picks Hindi for accented Nepali, choose नेपाली explicitly. You can edit and translate lines in the Caption studio before rendering.'
                         : 'Pick नेपाली for dedicated Nepali models. Best and Maximum are the most accurate options; Balanced uses medium.'}
                   </p>
                 </div>

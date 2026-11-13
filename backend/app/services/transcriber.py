@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import platform
 import re
@@ -209,11 +210,88 @@ _NEPALI_WORD_CORRECTIONS = {
     "श्वागत": "स्वागत",
 }
 
+_NEPALI_ENGLISH_TERMS_PATH = (
+    Path(__file__).resolve().parents[2] / "assets" / "nepali-english-terms.json"
+)
+
+
+def _load_nepali_english_terms() -> dict[str, str]:
+    """Common English words that Nepali speakers use inside Nepali speech.
+
+    The Nepali fine-tune writes these phonetically in Devanagari (for example
+    ``विन्डोज``). This map turns the known ones back into their Latin spelling
+    so captions keep English words in English and Nepali words in Devanagari.
+    """
+
+    try:
+        raw = json.loads(_NEPALI_ENGLISH_TERMS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in raw.items()
+        if str(key).strip() and str(value).strip()
+    }
+
+
+_NEPALI_ENGLISH_TERMS = _load_nepali_english_terms()
+_NEPALI_CASE_SUFFIXES = tuple(
+    sorted(
+        {
+            "हरूलाई",
+            "हरुलाई",
+            "हरूले",
+            "हरूको",
+            "हरूमा",
+            "हरूबाट",
+            "हरूसँग",
+            "हरू",
+            "देखि",
+            "भन्दा",
+            "जस्तै",
+            "जस्तो",
+            "लाई",
+            "बाट",
+            "सँग",
+            "सम्म",
+            "को",
+            "का",
+            "की",
+            "मा",
+            "ले",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+
+
+def _english_term_for(word: str) -> str | None:
+    direct = _NEPALI_ENGLISH_TERMS.get(word)
+    if direct:
+        return direct
+    for suffix in _NEPALI_CASE_SUFFIXES:
+        if len(word) <= len(suffix) or not word.endswith(suffix):
+            continue
+        stem = word[: -len(suffix)]
+        corrected_stem = _NEPALI_WORD_CORRECTIONS.get(stem, stem)
+        direct = _NEPALI_ENGLISH_TERMS.get(corrected_stem)
+        if direct:
+            return direct + suffix
+    return None
+
 
 def _correct_nepali_word(text: str) -> str:
     stripped = text.strip("।॥,;:!?\"'()[]{}")
-    corrected = _NEPALI_WORD_CORRECTIONS.get(stripped)
-    if corrected and stripped:
+    if not stripped:
+        return text
+    corrected = _NEPALI_WORD_CORRECTIONS.get(stripped, stripped)
+    english = _english_term_for(corrected)
+    if english:
+        return text.replace(stripped, english, 1)
+    if corrected != stripped:
         return text.replace(stripped, corrected, 1)
     return text
 
@@ -358,9 +436,11 @@ def _build_words(segments: list[Any], duration: float) -> list[Word]:
             text = _normalize_word(getattr(segment, "text", "") or "")
             start = float(getattr(segment, "start", 0.0) or 0.0)
             end = float(getattr(segment, "end", start) or start)
-            if not text or "�" in text or end <= start:
+            if not text or end <= start:
                 continue
-            parts = text.split()
+            # A window boundary can leave one broken UTF-8 token at the end of
+            # the segment; drop that token, not the whole sentence.
+            parts = [part for part in text.split() if "�" not in part]
             if not parts:
                 continue
             step = (end - start) / len(parts)

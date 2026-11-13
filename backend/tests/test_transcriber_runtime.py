@@ -134,6 +134,10 @@ def test_broken_utf8_word_fragments_are_dropped() -> None:
     words = transcriber._build_words(segments, 1.0)
     assert [word.text for word in words] == ["नमस्ते"]
 
+    fallback = [SimpleNamespace(start=0.0, end=1.0, text="नमस्ते प�", words=None)]
+    words = transcriber._build_words(fallback, 1.0)
+    assert [word.text for word in words] == ["नमस्ते"]
+
 
 def test_nepali_text_normalisation_cleans_danda_and_zero_width() -> None:
     assert transcriber._normalize_word("नमस्ते​|") == "नमस्ते।"
@@ -153,6 +157,21 @@ def test_nepali_spelling_corrections_fix_non_words_only() -> None:
     assert transcriber._normalize_word("सभादक्ष") == "सभाध्यक्ष"
     assert transcriber._normalize_word("राम्रो") == "राम्रो"
     assert transcriber._normalize_word("Kathmandu") == "Kathmandu"
+
+
+def test_english_words_become_latin_while_nepali_stays_devanagari() -> None:
+    assert transcriber._normalize_word("विन्डोज") == "Windows"
+    assert transcriber._normalize_word("प्रोसेसर") == "processor"
+    assert transcriber._normalize_word("भिडियो") == "video"
+    assert transcriber._normalize_word("युटुब") == "YouTube"
+    assert transcriber._normalize_word("युटुबमा") == "YouTubeमा"
+    assert transcriber._normalize_word("भिडियोको") == "videoको"
+    assert transcriber._normalize_word("कम्पनीहरू") == "companyहरू"
+    assert transcriber._normalize_word("जिबिदेखि") == "GBदेखि"
+    assert transcriber._normalize_word("ल्यापटोपहरूको") == "laptopहरूको"
+    assert transcriber._normalize_word("हार्डिक्स") == "hard disk"
+    assert transcriber._normalize_word("क्याप्सिटी") == "capacity"
+    assert transcriber._normalize_word("राममा") == "राममा"
 
 
 def test_hindi_looking_nepali_transcript_is_flagged() -> None:

@@ -765,7 +765,7 @@ export function CaptionStep({
                   : task === 'translate'
                     ? 'One-pass translation replaces the current lines with English. To keep the Nepali lines and add English as a second animated track, use Caption language above.'
                     : language === 'ne'
-                      ? 'Choosing नेपाली switches to Best (a Nepali fine-tuned Whisper model) for near-perfect accuracy. Fast and Balanced use vanilla Whisper and are noticeably less exact; Maximum adds beam search. The first Best run downloads about 1.5 GB.'
+                      ? 'Choosing नेपाली switches to Best (a Nepali fine-tuned Whisper model) for near-perfect accuracy. English words mixed into the speech stay in Latin script while Nepali stays in Devanagari. Fast and Balanced use vanilla Whisper and are noticeably less exact; Maximum adds beam search. The first Best run downloads about 1.5 GB.'
                       : transcript?.language
                         ? `Detected: ${transcript.language.toUpperCase()}. Fast / balanced / best map to base / small / medium.`
                         : 'Fast / balanced / best map to base / small / medium. Balanced is a good default.'}
