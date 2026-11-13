@@ -423,8 +423,8 @@ Common ASR spelling variants that are not yet keys:
 - सेयर (alongside शेयर)
 - टीबी (alongside टिबि), सीपीयू / सिपियू (alongside सिपियु, सीपीयू)
 - नार्मल (alongside नर्मल), सेकण्ड (alongside सेकेन्ड)
-- अप्लोड / अप्लोड, अफलाईन, अनलाईन, ईमेल, ईन्टरनेट — pick the spellings the
-  ASR actually emits and add only those.
+- अपलोड / अप्लोड, अफलाईन, अनलाईन, ईमेल — pick the spellings the ASR actually
+  emits and add only those.
 
 Case-suffix gaps:
 
