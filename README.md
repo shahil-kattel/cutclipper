@@ -69,8 +69,9 @@ Link sources are fetched by the backend. Optional file uploads are stored only i
 - Editable transcript: change text, start/end times, split at the playhead, merge lines, delete lines, or add new ones. Preview updates as you type.
 - Playable in-browser preview with the selected preset, font, size, colours, position, outline, and shadow rendered live over the uploaded video.
 - Fifty-one bundled font families with regular/bold/italic variants where available (Inter, Space Grotesk, Poppins, Bebas Neue, Mukta, Noto Sans Devanagari, Hind, Kalam, Rajdhani, Tiro Devanagari Hindi, and many more). Devanagari families shape conjuncts correctly in libass; the catalog is served from `/api/caption-fonts`.
-- **Nepali speech recognition** with faster-whisper `ne`, a Nepali initial prompt, and Fast/Balanced/Best/Maximum quality (`small` beam 1 / `small` beam 3 / `medium` beam 5 / `large-v3` beam 5). Any other Whisper language can be selected too, with its own quality ladder.
-- **Nepali → English translation** uses Whisper's translate task and burns the English result with the same caption presets. Auto language detection runs on a short prefix; if Nepali is detected, the dedicated Nepali model is used automatically for clip jobs too.
+- **Nepali speech recognition** with a Nepali prompt and Fast/Balanced/Best/Maximum quality (`small` beam 1 / `medium` beam 5 / `large-v3` beam 5 / `large-v3` beam 5). Nepali decoding uses temperature fallback, compression and log-probability guards, a tighter VAD window, and optional `CUTCLIPPER_NEPALI_HOTWORDS` to recover names and places. Any other Whisper language can be selected too.
+- **Accent-aware language detection** samples the start, middle, and end of longer audio and votes across all language probabilities, so an accent-heavy intro cannot lock the job into the wrong language. Selecting नेपाली explicitly always wins over auto-detection.
+- **Two-track translation for generated Nepali lines:** the Caption studio keeps the Nepali subtitles and can generate English subtitles with the *same timings and animated preset*, then switch between them for preview, editing, SRT, and render. Configure an OpenAI-compatible translation endpoint for faithful translation of edited text; otherwise Whisper's English pass is aligned to your line timings.
 - Transcription automatically uses the Apple Metal (MPS) backend on Apple Silicon, `int8` on CPU, and batched inference for long audio — typically several times faster than the previous CPU float32 path.
 - Language is detected automatically by default; English, Nepali, and Hindi are one click away.
 - Phone-safe margins, max two rendered lines, ASS injection sanitized.
@@ -273,7 +274,12 @@ All settings use the `CUTCLIPPER_` prefix and can live in `.env` or the environm
 | Variable | Default | Description |
 |---|---|---|
 | `CUTCLIPPER_WHISPER_MODEL` | `base` | `tiny`, `base`, `small`, `medium`, `large-v3`, or local model path |
-| `CUTCLIPPER_NEPALI_WHISPER_MODEL` | `medium` | Default model for Nepali speech; the Caption studio can override it per request with `fast`/`balanced`/`best` |
+| `CUTCLIPPER_NEPALI_WHISPER_MODEL` | `medium` | Default model for Nepali speech; the Caption studio can override it per request with `fast`/`balanced`/`best`/`maximum` |
+| `CUTCLIPPER_NEPALI_HOTWORDS` | empty | Comma-separated names or places that bias Nepali decoding |
+| `CUTCLIPPER_TRANSLATION_API_URL` | unset | Optional OpenAI-compatible chat-completions endpoint for Nepali → English text translation |
+| `CUTCLIPPER_TRANSLATION_API_KEY` | unset | Bearer token for the translation endpoint (omit for local servers) |
+| `CUTCLIPPER_TRANSLATION_MODEL` | `gpt-4o-mini` | Model name sent to the translation endpoint |
+| `CUTCLIPPER_TRANSLATION_TIMEOUT_SECONDS` | `120` | Translation request timeout |
 | `CUTCLIPPER_WHISPER_DEVICE` | `auto` | `auto`, `cpu`, `cuda` |
 | `CUTCLIPPER_WHISPER_COMPUTE_TYPE` | `auto` | CTranslate2 compute type; `int8` is a good CPU choice |
 | `CUTCLIPPER_VIDEO_ENCODER` | `auto` | `auto`, `h264_videotoolbox`, `h264_nvenc`, or `libx264` |
@@ -303,6 +309,7 @@ Frontend API base is controlled by `VITE_API_BASE` at build time (defaults to `/
 | `GET` | `/api/caption-fonts` | Bundled caption font catalog with variants |
 | `GET` | `/api/caption-fonts/{filename}` | Serves a bundled font for the in-browser preview |
 | `POST` | `/api/captions/transcribe` | Transcribe an upload for the Caption studio; returns editable segments + words, with a per-language/quality cache |
+| `POST` | `/api/captions/translate` | Translate edited caption segments to English while preserving timings (LLM endpoint when configured, Whisper English pass otherwise) |
 | `POST` | `/api/jobs` | Create a job from `{url}` or `{upload_id}` plus settings. `mode: "captions"` + `segments` + `language` renders a full captioned video |
 | `POST` | `/api/jobs/{id}/restyle` | Re-render a finished job's clips or captioned video with new caption styling |
 | `GET` | `/api/jobs/{id}` | Current job snapshot |

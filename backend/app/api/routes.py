@@ -32,11 +32,14 @@ from app.schemas import (
     TranscribeRequest,
     TranscriptResponse,
     TranscriptWordOut,
+    TranslateSegmentsRequest,
+    TranslateSegmentsResponse,
 )
 from app.services.audio import extract_audio
 from app.services.downloader import fetch_metadata
 from app.services.media import get_media_tools
 from app.services.transcriber import transcribe_audio
+from app.services.translator import translate_caption_segments
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -239,6 +242,62 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
         },
     )
     return response
+
+
+@router.post("/captions/translate", response_model=TranslateSegmentsResponse)
+async def translate_captions(
+    payload: TranslateSegmentsRequest,
+    request: Request,
+) -> TranslateSegmentsResponse:
+    manager = _manager(request)
+    settings = _settings(request)
+    upload = await asyncio.to_thread(manager.uploads.load, payload.upload_id)
+    if upload.metadata.has_audio is False:
+        raise AppError(
+            "This video has no audio track to translate.",
+            code="no_audio",
+            status_code=422,
+        )
+    work_dir = upload.path.parent / "transcribe"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    audio_path = work_dir / "audio.wav"
+    if not audio_path.exists():
+        await extract_audio(upload.path, audio_path, cancel_event=Event())
+    result = await translate_caption_segments(
+        payload.segments,
+        audio_path=audio_path,
+        duration=upload.metadata.duration,
+        settings=settings,
+        quality=payload.quality,
+        language=payload.language,
+        cache_dir=upload.path.parent,
+    )
+    if not result.segments:
+        raise AppError(
+            (
+                result.warnings[-1]
+                if result.warnings
+                else "The English translation came back empty. Try re-transcribing the speech."
+            ),
+            code="translation_empty",
+            status_code=422,
+            details={"warnings": result.warnings},
+        )
+    logger.info(
+        "caption translation ready",
+        extra={
+            "upload_id": upload.id,
+            "engine": result.engine,
+            "language": payload.language,
+            "segments": len(result.segments),
+        },
+    )
+    return TranslateSegmentsResponse(
+        segments=result.segments,
+        source_language=payload.language,
+        engine=result.engine,
+        warnings=result.warnings,
+    )
 
 
 @router.post("/preview", response_model=PreviewResponse)

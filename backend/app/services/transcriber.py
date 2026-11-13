@@ -289,16 +289,20 @@ def _dedupe_words(words: list[Word], duration: float) -> list[Word]:
     return cleaned
 
 
-_NEPALI_PROMPT = "यो नेपाली भाषामा बोलिएको कुराकानी हो।"
+_NEPALI_PROMPT = (
+    "यो नेपाली भाषामा बोलिएको अडियो हो, हिन्दी होइन। "
+    "शब्दहरू शुद्ध नेपाली हिज्जे, उचित विरामचिन्ह र प्राकृतिक वाक्य संरचनाका साथ लेख्नुहोस्।"
+)
 
 
 _QUALITY_MODELS_NE = {
     "fast": "small",
-    "balanced": "small",
-    "best": "medium",
+    "balanced": "medium",
+    "best": "large-v3",
     "maximum": "large-v3",
 }
 _QUALITY_BEAMS = {"fast": 1, "balanced": 3, "best": 5, "maximum": 5}
+_NEPALI_BEAMS = {"fast": 1, "balanced": 5, "best": 5, "maximum": 5}
 
 
 def _model_for(
@@ -321,7 +325,9 @@ def _model_for(
     return settings.whisper_model
 
 
-def _beam_for(quality: str | None, settings: Settings) -> int:
+def _beam_for(quality: str | None, settings: Settings, language: str | None = None) -> int:
+    if language == "ne" and quality in _NEPALI_BEAMS:
+        return _NEPALI_BEAMS[quality]
     return _QUALITY_BEAMS.get(quality or "", settings.whisper_beam_size)
 
 
@@ -341,9 +347,37 @@ def _transcribe_kwargs(
         "condition_on_previous_text": False,
         "temperature": 0.0,
     }
-    if language == "ne" and task == "transcribe":
-        kwargs["initial_prompt"] = _NEPALI_PROMPT
+    if language == "ne":
+        # Accented, soft, or noisy Nepali benefits from fallback decoding and a
+        # tighter VAD window. The thresholds recover from repetition loops
+        # instead of accepting a bad greedy transcript.
+        kwargs.update(
+            {
+                "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+                "compression_ratio_threshold": 2.4,
+                "log_prob_threshold": -1.0,
+                "no_speech_threshold": 0.6,
+                "vad_parameters": {"min_silence_duration_ms": 300, "speech_pad_ms": 200},
+            }
+        )
+        if task == "transcribe":
+            kwargs["initial_prompt"] = _NEPALI_PROMPT
+            hotwords = settings.nepali_hotwords.strip()
+            if hotwords:
+                kwargs["hotwords"] = hotwords
     return kwargs
+
+
+def _detection_windows(duration: float) -> list[tuple[float, float]]:
+    """Sample the start, middle, and end so one accent-heavy intro cannot skew detection."""
+
+    if duration <= 120:
+        return [(0.0, min(max(duration, 0.1), 90.0))]
+    return [
+        (0.0, 90.0),
+        (max(0.0, duration / 2 - 45), 90.0),
+        (max(0.0, duration - 90), 90.0),
+    ]
 
 
 async def _detect_language(
@@ -351,7 +385,7 @@ async def _detect_language(
     duration: float,
     settings: Settings,
 ) -> tuple[str | None, float | None]:
-    """Detect the spoken language on a short prefix so auto mode can pick Nepali."""
+    """Detect the spoken language across several regions and vote on the result."""
 
     device, compute_type = _resolve_runtime(settings)
     model = await asyncio.to_thread(
@@ -362,47 +396,85 @@ async def _detect_language(
         settings.whisper_cpu_threads,
     )
     tools = get_media_tools(settings)
-    prefix_path = audio_path
-    temp_path: Path | None = None
-    if duration > 90:
-        temp_path = audio_path.parent / f"detect_{uuid.uuid4().hex[:8]}.wav"
-        command = [
-            tools.ffmpeg,
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-t",
-            "90",
-            "-i",
-            str(audio_path),
-            "-c",
-            "copy",
-            str(temp_path),
-        ]
-        result = await run_process(command, timeout_seconds=120)
-        if result.returncode == 0 and temp_path.exists():
-            prefix_path = temp_path
+    temp_paths: list[Path] = []
     try:
         from faster_whisper.audio import decode_audio
 
-        samples = await asyncio.to_thread(decode_audio, str(prefix_path), 16000)
-        language, probability, _ = await asyncio.to_thread(
-            model.detect_language,
-            audio=samples,
-            vad_filter=True,
-        )
+        votes: dict[str, float] = {}
+        samples_seen = 0
+        for window_start, window_length in _detection_windows(duration):
+            sample_path = audio_path
+            if window_length < duration - 0.5 or window_start > 0.05:
+                temp_path = audio_path.parent / f"detect_{uuid.uuid4().hex[:8]}.wav"
+                temp_paths.append(temp_path)
+                command = [
+                    tools.ffmpeg,
+                    "-nostdin",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-ss",
+                    f"{window_start:.3f}",
+                    "-t",
+                    f"{window_length:.3f}",
+                    "-i",
+                    str(audio_path),
+                    "-c",
+                    "copy",
+                    str(temp_path),
+                ]
+                result = await run_process(command, timeout_seconds=120)
+                if result.returncode != 0 or not temp_path.exists():
+                    continue
+                sample_path = temp_path
+            try:
+                samples = await asyncio.to_thread(decode_audio, str(sample_path), 16000)
+                language, probability, all_probs = await asyncio.to_thread(
+                    model.detect_language,
+                    audio=samples,
+                    vad_filter=True,
+                    language_detection_segments=3,
+                )
+            except Exception as exc:
+                logger.info(
+                    "language detection sample failed",
+                    extra={"start": window_start, "error": str(exc)},
+                )
+                continue
+            samples_seen += 1
+            probability = float(probability or 0.0)
+            votes[language] = votes.get(language, 0.0) + probability
+            items = all_probs.items() if isinstance(all_probs, dict) else (all_probs or [])
+            for code, score in items:
+                votes[str(code)] = votes.get(str(code), 0.0) + float(score) * 0.35
+            logger.info(
+                "language detection sample",
+                extra={
+                    "start": round(window_start, 1),
+                    "language": language,
+                    "probability": round(probability, 3),
+                },
+            )
+        if not votes:
+            return None, None
+        language, score = max(votes.items(), key=lambda item: item[1])
+        total = sum(votes.values())
+        confidence = score / total if total > 0 else 0.0
         logger.info(
             "detected source language",
-            extra={"language": language, "probability": round(float(probability), 3)},
+            extra={
+                "language": language,
+                "probability": round(confidence, 3),
+                "samples": samples_seen,
+            },
         )
-        return language, float(probability)
+        return language, confidence
     except Exception as exc:
         logger.warning("language detection failed", extra={"error": str(exc)})
         return None, None
     finally:
-        if temp_path is not None:
+        for temp_path in temp_paths:
             temp_path.unlink(missing_ok=True)
 
 
@@ -486,7 +558,7 @@ async def transcribe_audio(
         detected_language, _ = await _detect_language(audio_path, duration, settings)
         selected_language = detected_language
     selected_model = model_size or _model_for(selected_language, quality, settings)
-    selected_beam = beam_size or _beam_for(quality, settings)
+    selected_beam = beam_size or _beam_for(quality, settings, selected_language)
     device, compute_type = _resolve_runtime(settings)
     if cancel_event.is_set():
         raise JobCancelledError()
@@ -680,7 +752,7 @@ async def transcribe_windows(
             on_progress(0.02, "Detecting spoken language")
         selected_language, _ = await _detect_language(audio_path, duration, settings)
     selected_model = model_size or _model_for(selected_language, quality, settings)
-    selected_beam = beam_size or _beam_for(quality, settings)
+    selected_beam = beam_size or _beam_for(quality, settings, selected_language)
     device, compute_type = _resolve_runtime(settings)
     if on_progress:
         on_progress(0.03, "Loading the speech model")

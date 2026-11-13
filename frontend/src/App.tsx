@@ -20,6 +20,7 @@ import {
   previewVideo,
   restyleJob,
   transcribeCaptions,
+  translateCaptions,
   uploadVideo,
 } from './lib/api'
 import { clearActiveJob, readActiveJob, storeActiveJob } from './lib/activeJob'
@@ -70,6 +71,9 @@ function AppContent() {
   const [clipTranslate, setClipTranslate] = useState(false)
   const [captionTranscript, setCaptionTranscript] = useState<TranscriptResponse | null>(null)
   const [captionSegments, setCaptionSegments] = useState<CaptionSegment[]>([])
+  const [captionTranslation, setCaptionTranslation] = useState<CaptionSegment[] | null>(null)
+  const [captionView, setCaptionView] = useState<'source' | 'translation'>('source')
+  const [translatingCaptions, setTranslatingCaptions] = useState(false)
   const [captionLoading, setCaptionLoading] = useState(false)
   const [captionError, setCaptionError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -85,6 +89,11 @@ function AppContent() {
   const captionRequest = useRef(0)
   const restoreAttempted = useRef(false)
 
+  const activeCaptionSegments =
+    captionView === 'translation' && captionTranslation ? captionTranslation : captionSegments
+  const captionUploadId = preview?.upload_id ?? null
+  const captionSourceLanguage =
+    captionLanguage === 'auto' ? (captionTranscript?.language ?? 'ne') : captionLanguage
   const { job: streamedJob, connection } = useJobStream(jobId, step === 'processing')
   const job = streamedJob?.id === jobId ? streamedJob : createdJob?.id === jobId ? createdJob : null
   // SSE frames can lag the cancel response; keep the button retired locally
@@ -220,6 +229,8 @@ function AppContent() {
         if (captionRequest.current !== requestId) return
         setCaptionTranscript(response)
         setCaptionSegments(response.segments)
+        setCaptionTranslation(null)
+        setCaptionView('source')
         const translated = response.translated === true || task === 'translate'
         if (language === 'ne' && !translated) {
           setCaptionSettings((current) =>
@@ -245,10 +256,52 @@ function AppContent() {
     [captionQuality, captionTask, toast],
   )
 
+  const updateActiveCaptionSegments = useCallback(
+    (next: CaptionSegment[]) => {
+      if (captionView === 'translation' && captionTranslation) {
+        setCaptionTranslation(next)
+        return
+      }
+      setCaptionSegments(next)
+      // Editing the source lines invalidates the previous English pass.
+      setCaptionTranslation(null)
+      setCaptionView('source')
+    },
+    [captionTranslation, captionView],
+  )
+
+  const translateGeneratedCaptions = useCallback(async () => {
+    if (!captionUploadId || !captionSegments.length) {
+      toast.info('Generate Nepali subtitle lines first.')
+      return
+    }
+    setTranslatingCaptions(true)
+    try {
+      const response = await translateCaptions(
+        captionUploadId,
+        captionSegments,
+        captionQuality,
+        captionSourceLanguage,
+      )
+      setCaptionTranslation(response.segments)
+      setCaptionView('translation')
+      const warning = response.warnings[0]
+      if (warning) toast.info(warning)
+      toast.success(`English subtitles ready · ${response.segments.length} lines`)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    } finally {
+      setTranslatingCaptions(false)
+    }
+  }, [captionQuality, captionSegments, captionSourceLanguage, captionUploadId, toast])
+
   const uploadLocalFile = useCallback(
     async (file: File) => {
       captionRequest.current += 1
       setCaptionLoading(false)
+      setCaptionTranslation(null)
+      setCaptionView('source')
+      setTranslatingCaptions(false)
       setPreviewLoading(true)
       setPreviewError(null)
       setPreviewRetryable(false)
@@ -353,6 +406,9 @@ function AppContent() {
     setGenerationError(null)
     setCaptionTranscript(null)
     setCaptionSegments([])
+    setCaptionTranslation(null)
+    setCaptionView('source')
+    setTranslatingCaptions(false)
     setCaptionError(null)
     setStep('link')
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -417,7 +473,7 @@ function AppContent() {
 
   const startCaptionRender = useCallback(async () => {
     if (!preview?.upload_id || generationRef.current) return
-    if (!captionSegments.length) {
+    if (!activeCaptionSegments.length) {
       toast.info('Add or transcribe at least one caption line first.')
       return
     }
@@ -438,7 +494,7 @@ function AppContent() {
     try {
       const newJob = await createJob({ uploadId: preview.upload_id }, renderSettings, {
         mode: 'captions',
-        segments: captionSegments,
+        segments: activeCaptionSegments,
         language: captionLanguage === 'auto' ? null : captionLanguage,
       })
       if (generationToken.current !== token) {
@@ -459,10 +515,10 @@ function AppContent() {
       setGenerating(false)
     }
   }, [
+    activeCaptionSegments,
     captionExportQuality,
     captionLanguage,
     captionResolution,
-    captionSegments,
     captionSettings,
     preview,
     toast,
@@ -567,6 +623,9 @@ function AppContent() {
     setClipTranslate(false)
     setCaptionTranscript(null)
     setCaptionSegments([])
+    setCaptionTranslation(null)
+    setCaptionView('source')
+    setTranslatingCaptions(false)
     setCaptionError(null)
     setCancelling(false)
     handledStatus.current = null
@@ -636,12 +695,17 @@ function AppContent() {
                 <CaptionStep
                   preview={preview}
                   transcript={captionTranscript}
-                  segments={captionSegments}
+                  segments={activeCaptionSegments}
                   loading={captionLoading}
                   error={captionError}
                   language={captionLanguage}
                   quality={captionQuality}
                   task={captionTask}
+                  captionView={captionView}
+                  hasTranslation={Boolean(captionTranslation?.length)}
+                  translating={translatingCaptions}
+                  onTranslationViewChange={setCaptionView}
+                  onTranslate={() => void translateGeneratedCaptions()}
                   onQualityChange={setCaptionQuality}
                   onTaskChange={setCaptionTask}
                   onLanguageChange={(value) => {
@@ -667,7 +731,7 @@ function AppContent() {
                       )
                     }
                   }}
-                  onSegmentsChange={setCaptionSegments}
+                  onSegmentsChange={updateActiveCaptionSegments}
                   exportResolution={captionResolution}
                   exportQuality={captionExportQuality}
                   onExportResolutionChange={setCaptionResolution}

@@ -42,6 +42,32 @@ def test_maximum_quality_uses_large_v3() -> None:
     assert transcriber._beam_for("maximum", settings) == 5
 
 
+def test_nepali_quality_ladder_prioritises_accuracy() -> None:
+    settings = Settings()
+    assert transcriber._model_for("ne", "fast", settings) == "small"
+    assert transcriber._model_for("ne", "balanced", settings) == "medium"
+    assert transcriber._model_for("ne", "best", settings) == "large-v3"
+    assert transcriber._beam_for("balanced", settings, "ne") == 5
+
+
+def test_nepali_decoding_uses_fallback_and_hotwords() -> None:
+    settings = Settings(nepali_hotwords="Kathmandu, Pokhara")
+    kwargs = transcriber._transcribe_kwargs(settings, "ne", beam_size=5)
+    assert kwargs["temperature"] == [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    assert kwargs["compression_ratio_threshold"] == 2.4
+    assert kwargs["vad_parameters"]["min_silence_duration_ms"] == 300
+    assert kwargs["hotwords"] == "Kathmandu, Pokhara"
+    assert "नेपाली" in kwargs["initial_prompt"]
+
+
+def test_long_audio_language_detection_samples_three_regions() -> None:
+    windows = transcriber._detection_windows(600.0)
+    assert len(windows) == 3
+    assert windows[0][0] == 0.0
+    assert windows[-1][0] > 0.0
+    assert len(transcriber._detection_windows(60.0)) == 1
+
+
 def test_translate_disables_the_nepali_prompt() -> None:
     kwargs = transcriber._transcribe_kwargs(Settings(), "ne", beam_size=3, task="translate")
     assert kwargs["task"] == "translate"

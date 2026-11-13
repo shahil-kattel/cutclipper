@@ -51,6 +51,11 @@ interface CaptionStepProps {
   onTaskChange: (task: TranscriptionTask) => void
   onTranscribe: (force: boolean, task?: TranscriptionTask) => void
   onSegmentsChange: (segments: CaptionSegment[]) => void
+  captionView: 'source' | 'translation'
+  hasTranslation: boolean
+  translating: boolean
+  onTranslationViewChange: (view: 'source' | 'translation') => void
+  onTranslate: () => void
   exportResolution: ExportResolution
   exportQuality: ExportQuality
   onExportResolutionChange: (resolution: ExportResolution) => void
@@ -86,8 +91,8 @@ function qualityOptionsFor(
   return language === 'ne'
     ? [
         { value: 'fast', label: 'Fast', detail: 'small · quick' },
-        { value: 'balanced', label: 'Balanced', detail: 'small' },
-        { value: 'best', label: 'Best', detail: 'medium' },
+        { value: 'balanced', label: 'Balanced', detail: 'medium' },
+        { value: 'best', label: 'Best', detail: 'large-v3' },
         { value: 'maximum', label: 'Maximum', detail: 'large-v3' },
       ]
     : [
@@ -119,6 +124,11 @@ export function CaptionStep({
   onTaskChange,
   onTranscribe,
   onSegmentsChange,
+  captionView,
+  hasTranslation,
+  translating,
+  onTranslationViewChange,
+  onTranslate,
   exportResolution,
   exportQuality,
   onExportResolutionChange,
@@ -149,6 +159,10 @@ export function CaptionStep({
   const activeIndex = segments.findIndex(
     (segment) => currentTime >= segment.start - 0.02 && currentTime < segment.end,
   )
+  const sourceLabel =
+    transcript?.language === 'ne' || language === 'ne'
+      ? 'नेपाली'
+      : (transcript?.language?.toUpperCase() ?? 'Original')
 
   const updateSegment = (index: number, patch: Partial<CaptionSegment>) => {
     const next = segments.map((segment, position) =>
@@ -391,6 +405,60 @@ export function CaptionStep({
               </div>
             }
           >
+            {!loading && task !== 'translate' ? (
+              <div className="mb-4 flex flex-col gap-3 rounded-xl border-[1.5px] border-ink/25 bg-paper p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="flex items-center gap-1.5 text-[11.5px] font-semibold text-ink">
+                    <Languages className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
+                    Caption language
+                  </p>
+                  <p className="mt-0.5 text-[10px] leading-4 text-ink-soft">
+                    Translate the generated lines to English. Timing, preview, and animations are
+                    preserved.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    aria-pressed={captionView === 'source'}
+                    onClick={() => onTranslationViewChange('source')}
+                    className={cn(
+                      'rounded-lg border px-2 py-1.5 text-[10.5px] font-semibold transition',
+                      captionView === 'source'
+                        ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                        : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                    )}
+                  >
+                    {sourceLabel}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={captionView === 'translation'}
+                    disabled={!hasTranslation}
+                    onClick={() => onTranslationViewChange('translation')}
+                    className={cn(
+                      'rounded-lg border px-2 py-1.5 text-[10.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40',
+                      captionView === 'translation'
+                        ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                        : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                    )}
+                  >
+                    English
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={Languages}
+                    loading={translating}
+                    disabled={!segments.length}
+                    onClick={onTranslate}
+                  >
+                    {hasTranslation ? 'Re-translate' : 'Translate to English'}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {loading ? (
               <div className="paper-inset flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
                 <LoaderCircle className="h-6 w-6 animate-spin text-tomato" aria-hidden="true" />
@@ -629,16 +697,16 @@ export function CaptionStep({
                     onTranscribe(true, next)
                   }}
                 >
-                  {task === 'translate' ? 'Back to spoken words' : 'Translate to English'}
+                  {task === 'translate' ? 'Back to spoken words' : 'Translate audio (one pass)'}
                 </Button>
               </div>
               <p className="mt-2 text-[10px] leading-4 text-ink-faint">
                 {transcript?.translated
                   ? 'English translation ready. Edit any line below before rendering; the selected animations are applied to the English captions.'
                   : task === 'translate'
-                    ? 'Whisper translates the spoken audio to English in one pass. Use Maximum (large-v3) for the most accurate translation; it is the slowest option.'
+                    ? 'One-pass translation replaces the current lines with English. To keep the Nepali lines and add English as a second animated track, use Caption language above.'
                     : language === 'ne'
-                      ? 'Nepali defaults to the fast small model on Metal/int8. Best uses medium; Maximum uses large-v3 (most accurate, slowest, ~3 GB first run).'
+                      ? 'Nepali uses medium by default; Best and Maximum use large-v3 with fallback decoding for accents and noisy audio (slowest, ~3 GB first run). If auto-detect confuses accented Nepali with Hindi, choose नेपाली explicitly.'
                       : transcript?.language
                         ? `Detected: ${transcript.language.toUpperCase()}. Fast / balanced / best map to base / small / medium.`
                         : 'Fast / balanced / best map to base / small / medium. Balanced is a good default.'}

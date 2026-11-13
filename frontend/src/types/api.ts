@@ -137,6 +137,13 @@ export interface TranscriptResponse {
   translated?: boolean
 }
 
+export interface TranslationResponse {
+  segments: CaptionSegment[]
+  source_language: string
+  engine: 'llm' | 'whisper'
+  warnings: string[]
+}
+
 export interface Clip {
   id: string
   index: number

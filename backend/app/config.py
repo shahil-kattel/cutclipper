@@ -42,14 +42,23 @@ class Settings(BaseSettings):
     max_concurrent_jobs: int = Field(default=1, ge=1, le=4)
 
     whisper_model: str = "base"
-    # Balanced speed/accuracy default for Nepali. Use "medium" or "large-v3"
-    # from the Caption studio (or CUTCLIPPER_NEPALI_WHISPER_MODEL) for more accuracy.
-    nepali_whisper_model: str = "small"
+    # Nepali is served by medium by default; Best/Maximum promote to large-v3.
+    nepali_whisper_model: str = "medium"
+    # Optional comma-separated names/places to bias Nepali decoding.
+    nepali_hotwords: str = ""
     whisper_device: str = "auto"
     whisper_compute_type: str = "auto"
     whisper_language: str | None = None
     whisper_beam_size: int = Field(default=5, ge=1, le=10)
     whisper_cpu_threads: int = Field(default=0, ge=0)
+
+    # Optional OpenAI-compatible endpoint used for faithful Nepali → English
+    # subtitle translation. Without it, the app falls back to Whisper's
+    # English pass and aligns the result to your subtitle timings.
+    translation_api_url: str | None = None
+    translation_api_key: str | None = None
+    translation_model: str = "gpt-4o-mini"
+    translation_timeout_seconds: int = Field(default=120, ge=10)
 
     ffmpeg_binary: str | None = None
     ffprobe_binary: str | None = None

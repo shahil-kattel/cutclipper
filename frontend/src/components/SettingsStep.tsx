@@ -66,8 +66,8 @@ function captionQualityOptions(language: string) {
   return language === 'ne'
     ? [
         { value: 'fast' as const, label: 'Fast', detail: 'small · quick' },
-        { value: 'balanced' as const, label: 'Balanced', detail: 'small' },
-        { value: 'best' as const, label: 'Best', detail: 'medium' },
+        { value: 'balanced' as const, label: 'Balanced', detail: 'medium' },
+        { value: 'best' as const, label: 'Best', detail: 'large-v3' },
         { value: 'maximum' as const, label: 'Maximum', detail: 'large-v3' },
       ]
     : [
@@ -689,8 +689,8 @@ export function SettingsStep({
                     {translateCaptions
                       ? 'Whisper translates the spoken audio to English in one pass; the selected style below is applied to the English captions.'
                       : captionLanguage === 'ne'
-                        ? 'Nepali defaults to the fast small model. Best uses medium; Maximum uses large-v3 — the most accurate option, but the slowest with a ~3 GB first-run download. You can edit any line in the Caption studio before rendering.'
-                        : 'Pick नेपाली for dedicated Nepali models. Best is the most accurate option; Balanced is a good default.'}
+                        ? 'Nepali uses medium by default; Best and Maximum use large-v3 with fallback decoding for accents and noisy audio (the most accurate option, but the slowest with a ~3 GB first-run download). If auto-detect picks Hindi for accented Nepali, choose नेपाली explicitly. You can edit and translate lines in the Caption studio before rendering.'
+                        : 'Pick नेपाली for dedicated Nepali models. Best and Maximum are the most accurate options; Balanced uses medium.'}
                   </p>
                 </div>
                 <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />

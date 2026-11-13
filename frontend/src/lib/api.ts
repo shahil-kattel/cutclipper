@@ -1,5 +1,6 @@
 import type {
   ApiErrorBody,
+  CaptionSegment,
   CaptionSettings,
   ClipSettings,
   Job,
@@ -9,6 +10,7 @@ import type {
   TranscriptResponse,
   TranscriptionQuality,
   TranscriptionTask,
+  TranslationResponse,
 } from '../types/api'
 
 const configuredBase = (import.meta.env.VITE_API_BASE as string | undefined)?.trim()
@@ -170,6 +172,27 @@ export async function transcribeCaptions(
         quality: quality || undefined,
         task,
         force,
+      }),
+    },
+    60 * 60 * 1000,
+  )
+}
+
+export async function translateCaptions(
+  uploadId: string,
+  segments: CaptionSegment[],
+  quality: TranscriptionQuality | null,
+  language: string,
+): Promise<TranslationResponse> {
+  return request<TranslationResponse>(
+    '/captions/translate',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        upload_id: uploadId,
+        segments,
+        quality: quality || undefined,
+        language,
       }),
     },
     60 * 60 * 1000,

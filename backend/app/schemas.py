@@ -320,6 +320,31 @@ class TranscribeRequest(BaseModel):
     force: bool = False
 
 
+class TranslateSegmentsRequest(BaseModel):
+    upload_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    segments: list[CaptionSegment] = Field(min_length=1, max_length=5000)
+    quality: TranscriptionQuality | None = None
+    language: str = Field(default="ne", pattern=r"^[a-z]{2,3}$")
+
+    @model_validator(mode="after")
+    def ordered_segments(self) -> TranslateSegmentsRequest:
+        ordered = sorted(self.segments, key=lambda segment: segment.start)
+        previous_end = -1.0
+        for segment in ordered:
+            if segment.start < previous_end - 0.001:
+                raise ValueError("Caption segments must not overlap.")
+            previous_end = segment.end
+        self.segments = ordered
+        return self
+
+
+class TranslateSegmentsResponse(BaseModel):
+    segments: list[CaptionSegment] = Field(default_factory=list)
+    source_language: str = "ne"
+    engine: Literal["llm", "whisper"] = "whisper"
+    warnings: list[str] = Field(default_factory=list)
+
+
 class TranscriptWordOut(BaseModel):
     start: float
     end: float
