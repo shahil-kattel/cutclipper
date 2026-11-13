@@ -644,16 +644,20 @@ export function CaptionToggleRow({
   onChange,
   disabled,
   note,
+  title = 'Captions',
+  ariaLabel = 'Captions',
 }: {
   enabled: boolean
   onChange: (value: boolean) => void
   disabled?: boolean
   note?: ReactNode
+  title?: string
+  ariaLabel?: string
 }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-ink/20 bg-paper px-3 py-2.5">
       <div>
-        <p className="text-[11.5px] font-semibold text-ink">Captions</p>
+        <p className="text-[11.5px] font-semibold text-ink">{title}</p>
         <p className="mt-0.5 text-[9.5px] text-ink-soft">
           {note ?? 'Burn styled captions into this export.'}
         </p>
@@ -662,7 +666,7 @@ export function CaptionToggleRow({
         type="button"
         role="switch"
         aria-checked={enabled}
-        aria-label="Captions"
+        aria-label={ariaLabel}
         disabled={disabled}
         onClick={() => onChange(!enabled)}
         className={cn(
@@ -672,7 +676,7 @@ export function CaptionToggleRow({
           disabled && 'cursor-not-allowed opacity-40',
         )}
       >
-        <span className="sr-only">Captions</span>
+        <span className="sr-only">{ariaLabel}</span>
       </button>
     </div>
   )

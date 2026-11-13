@@ -8,6 +8,7 @@ import copy
 import json
 import logging
 import os
+import re
 import shutil
 import time
 import uuid
@@ -63,6 +64,7 @@ logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING}
 TERMINAL_STATUSES = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
 
 
 @dataclass(slots=True)
@@ -88,6 +90,7 @@ class JobRecord:
     upload_id: str | None = None
     mode: JobMode = JobMode.CLIPS
     segments: list[CaptionSegment] | None = None
+    secondary_segments: list[CaptionSegment] | None = None
     language: str | None = None
     quality: str | None = None
     task: str = "transcribe"
@@ -197,6 +200,7 @@ class JobManager:
         upload_id: str | None = None,
         mode: JobMode = JobMode.CLIPS,
         segments: list[CaptionSegment] | None = None,
+        secondary_segments: list[CaptionSegment] | None = None,
         language: str | None = None,
         quality: str | None = None,
         task: str = "transcribe",
@@ -213,6 +217,7 @@ class JobManager:
             upload_id=upload_id,
             mode=mode,
             segments=segments,
+            secondary_segments=secondary_segments,
             language=language,
             quality=quality,
             task=task,
@@ -285,6 +290,7 @@ class JobManager:
             mode=source.mode,
             video=source.video,
             caption_words=copy.deepcopy(source.caption_words),
+            secondary_segments=copy.deepcopy(source.secondary_segments),
             clip_plans=copy.deepcopy(source.clip_plans),
             restyle_of=source.id,
             base_dir=self.settings.jobs_dir,
@@ -547,11 +553,23 @@ class JobManager:
             finally:
                 self.queue.task_done()
 
-    def _ensure_caption_script_font(self, record: JobRecord, transcript: Transcript) -> None:
-        """Never burn Devanagari text with a Latin-only font."""
+    def _ensure_caption_script_font(
+        self,
+        record: JobRecord,
+        *text_sources: str,
+    ) -> None:
+        """Never burn Devanagari text with a Latin-only font.
+
+        The check follows the text itself rather than the detected language
+        code: Hindi audio is also Devanagari, and auto-detection can label
+        Nepali speech as Hindi. If any caption text needs Devanagari, the
+        exported captions use Mukta unless the chosen font already supports it.
+        """
 
         captions = record.settings.captions
-        if not captions.enabled or record.task == "translate" or transcript.language != "ne":
+        if not captions.enabled or record.task == "translate":
+            return
+        if not any(_DEVANAGARI_RE.search(text) for text in text_sources if text):
             return
         spec = font_spec(captions.font)
         if spec is not None and "devanagari" in spec.scripts:
@@ -564,9 +582,21 @@ class JobManager:
         self._update(
             record,
             warnings=[
-                f"Nepali was detected, so the caption font was switched from {captions.font} "
-                "to Mukta for correct Devanagari rendering."
+                f"Devanagari caption text was detected, so the caption font was switched "
+                f"from {captions.font} to Mukta for correct Nepali rendering."
             ],
+        )
+
+    def _ensure_segment_caption_font(
+        self,
+        record: JobRecord,
+        segments: list[CaptionSegment] | None,
+    ) -> None:
+        # Only the primary track controls the style font. The secondary
+        # Nepali line has its own Devanagari font, so it must not force the
+        # English line away from the user's chosen typeface.
+        self._ensure_caption_script_font(
+            record, *[segment.text for segment in (segments or [])[:80]]
         )
 
     def _prepare_upload(self, record: JobRecord, downloads: Path) -> Path:
@@ -628,6 +658,12 @@ class JobManager:
                 has_audio=media.has_audio,
             )
         words = list(record.caption_words)
+        secondary_words = (
+            words_from_segments(record.secondary_segments)
+            if record.secondary_segments and record.settings.captions.secondary_enabled
+            else []
+        )
+        self._ensure_caption_script_font(record, " ".join(word.text for word in words[:400]))
         title_slug = safe_title_slug(record.video.title)
 
         if record.mode == JobMode.CAPTIONS:
@@ -656,6 +692,7 @@ class JobManager:
                 settings=self.settings,
                 captions=record.settings.captions,
                 words=words,
+                secondary_words=secondary_words,
                 title_slug=title_slug,
                 work_dir=work,
                 output_dir=outputs,
@@ -832,12 +869,25 @@ class JobManager:
         )
 
         words = words_from_segments(record.segments) if record.segments else []
+        secondary_words = (
+            words_from_segments(record.secondary_segments)
+            if record.secondary_segments and record.settings.captions.secondary_enabled
+            else []
+        )
         if record.segments:
+            self._ensure_segment_caption_font(record, record.segments)
             self._update(
                 record,
                 stage=JobStage.CAPTIONING,
                 progress=48,
-                message=f"Using {len(record.segments)} edited caption lines",
+                message=(
+                    f"Using {len(record.segments)} edited caption lines"
+                    + (
+                        f" plus {len(record.secondary_segments)} Nepali lines"
+                        if secondary_words
+                        else ""
+                    )
+                ),
             )
         elif media.has_audio:
             self._update(
@@ -872,7 +922,7 @@ class JobManager:
             )
             words = transcript.words
             record.caption_words = list(words)
-            self._ensure_caption_script_font(record, transcript)
+            self._ensure_caption_script_font(record, " ".join(word.text for word in words[:400]))
             if transcript.warnings:
                 self._update(record, warnings=transcript.warnings)
             if not words:
@@ -914,6 +964,7 @@ class JobManager:
             settings=self.settings,
             captions=record.settings.captions,
             words=words,
+            secondary_words=secondary_words,
             title_slug=safe_title_slug(metadata.title),
             work_dir=work,
             output_dir=outputs,
@@ -1211,7 +1262,9 @@ class JobManager:
         else:
             self._update(record, progress=50, message="No audio · skipping transcription")
 
-        self._ensure_caption_script_font(record, transcript)
+        self._ensure_caption_script_font(
+            record, " ".join(word.text for word in transcript.words[:400])
+        )
 
         self._update(
             record,

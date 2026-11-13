@@ -213,6 +213,11 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
             "Nepali was detected. Pick नेपाली and Balanced or Best accuracy to re-transcribe "
             "with the dedicated Nepali model for better results."
         )
+    elif transcript.language == "hi" and language is None:
+        warnings.append(
+            "Hindi was detected. If this video is actually Nepali, choose नेपाली and Balanced "
+            "or Best accuracy so the Nepali model, prompt, and Devanagari caption font are used."
+        )
     if not segments:
         warnings.append("No speech was detected in this video. You can add caption lines manually.")
     response = TranscriptResponse(
@@ -323,6 +328,7 @@ async def create_job(payload: CreateJobRequest, request: Request) -> JobOut:
             upload_id=payload.upload_id,
             mode=payload.mode,
             segments=payload.segments,
+            secondary_segments=payload.secondary_segments,
             language=payload.language,
             quality=payload.quality,
             task=payload.task,

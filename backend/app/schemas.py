@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.caption_fonts import CAPTION_FONT_NAMES, is_valid_font
+from app.caption_fonts import CAPTION_FONT_NAMES, font_spec, is_valid_font
 
 HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
 CaptionFont = str
@@ -188,12 +188,30 @@ class CaptionSettings(BaseModel):
     letter_spacing: float = Field(default=0.0, ge=-5.0, le=20.0)
     word_spacing: float = Field(default=0.0, ge=0.0, le=40.0)
     text_case: CaptionTextCase = CaptionTextCase.NONE
+    # Burn the Nepali source line above the translated line. The secondary
+    # track only renders when a secondary caption list is supplied, so the
+    # default is harmless for captions that have no translation.
+    secondary_enabled: bool = True
+    secondary_font: CaptionFont = "Mukta"
 
     @field_validator("font")
     @classmethod
     def supported_font(cls, value: str) -> str:
         if not is_valid_font(value):
             raise ValueError("Choose one of the caption fonts offered by CutClipper.")
+        return value
+
+    @field_validator("secondary_font")
+    @classmethod
+    def supported_secondary_font(cls, value: str) -> str:
+        spec = font_spec(value)
+        if spec is None:
+            raise ValueError("Choose one of the caption fonts offered by CutClipper.")
+        if "devanagari" not in spec.scripts:
+            raise ValueError(
+                "The Nepali caption line needs a Devanagari font such as Mukta, "
+                "Noto Sans Devanagari, Hind, or Kalam."
+            )
         return value
 
     @model_validator(mode="after")
@@ -284,6 +302,10 @@ class CreateJobRequest(BaseModel):
     quality: TranscriptionQuality | None = None
     task: TranscriptionTask = "transcribe"
     segments: list[CaptionSegment] | None = Field(default=None, max_length=5000)
+    # Optional second subtitle track burned above the main one. The Caption
+    # studio sends the Nepali source lines here when the exported video should
+    # keep both Nepali and English subtitles.
+    secondary_segments: list[CaptionSegment] | None = Field(default=None, max_length=5000)
 
     @field_validator("url")
     @classmethod
@@ -307,8 +329,20 @@ class CreateJobRequest(BaseModel):
                         raise ValueError("Caption segments must not overlap.")
                     previous_end = segment.end
                 self.segments = ordered
+            if self.secondary_segments is not None:
+                if self.segments is None:
+                    raise ValueError("Add the main caption lines before adding a secondary track.")
+                ordered_secondary = sorted(self.secondary_segments, key=lambda item: item.start)
+                previous_end = -1.0
+                for segment in ordered_secondary:
+                    if segment.start < previous_end - 0.001:
+                        raise ValueError("Secondary caption segments must not overlap.")
+                    previous_end = segment.end
+                self.secondary_segments = ordered_secondary
         elif self.segments:
             raise ValueError("Caption edits are only supported in caption mode.")
+        elif self.secondary_segments:
+            raise ValueError("Secondary caption lines are only supported in caption mode.")
         return self
 
 

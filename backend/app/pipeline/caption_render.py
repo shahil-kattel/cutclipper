@@ -180,6 +180,7 @@ async def render_captioned_video(
     on_progress: Callable[[float], None],
     resolution: ExportResolution = ExportResolution.HD,
     quality: str = "high",
+    secondary_words: list[Word] | None = None,
 ) -> RenderedCaption:
     """Burn captions onto the full source video while preserving its aspect ratio."""
 
@@ -207,6 +208,7 @@ async def render_captioned_video(
         settings=captions,
         output_size=(width, height),
         output_path=ass_path,
+        secondary_words=secondary_words,
     )
     if caption_result.event_count == 0:
         raise ProcessingError(

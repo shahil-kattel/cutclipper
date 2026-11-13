@@ -138,6 +138,7 @@ export async function createJob(
         quality: options.quality || undefined,
         task: options.task && options.task !== 'transcribe' ? options.task : undefined,
         segments: options.segments,
+        secondary_segments: options.secondarySegments,
       }),
     },
     45_000,

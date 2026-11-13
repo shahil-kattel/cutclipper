@@ -40,6 +40,7 @@ def test_maximum_quality_uses_large_v3() -> None:
     settings = Settings()
     assert transcriber._model_for("ne", "maximum", settings) == "large-v3"
     assert transcriber._beam_for("maximum", settings) == 5
+    assert transcriber._beam_for("maximum", settings, "ne") == 10
 
 
 def test_nepali_quality_ladder_prioritises_accuracy() -> None:
@@ -66,6 +67,28 @@ def test_long_audio_language_detection_samples_three_regions() -> None:
     assert windows[0][0] == 0.0
     assert windows[-1][0] > 0.0
     assert len(transcriber._detection_windows(60.0)) == 1
+
+
+def test_nepali_text_normalisation_cleans_danda_and_zero_width() -> None:
+    assert transcriber._normalize_word("नमस्ते​|") == "नमस्ते।"
+    assert transcriber._join_words(["नमस्ते", "।", "संसार"]) == "नमस्ते। संसार"
+    assert transcriber._join_words(["Hello", ",", "world"]) == "Hello , world"
+
+
+def test_hindi_looking_nepali_transcript_is_flagged() -> None:
+    assert not transcriber._looks_like_hindi("यो नेपाली हो। हामी ठीक छौं।")
+    assert transcriber._looks_like_hindi("यह कितना अच्छा है। वह बहुत अच्छा हुआ।")
+    nepali = [transcriber.Word(0.0, 1.0, "यो"), transcriber.Word(1.0, 2.0, "नेपाली")]
+    assert transcriber._nepali_language_warning(nepali, "ne") is None
+    hindi = [
+        transcriber.Word(0.0, 0.5, "यह"),
+        transcriber.Word(0.5, 1.0, "कितना"),
+        transcriber.Word(1.0, 1.5, "है"),
+        transcriber.Word(1.5, 2.0, "वह"),
+        transcriber.Word(2.0, 2.5, "बहुत"),
+        transcriber.Word(2.5, 3.0, "हुआ"),
+    ]
+    assert "Hindi verb forms" in (transcriber._nepali_language_warning(hindi, "ne") or "")
 
 
 def test_translate_disables_the_nepali_prompt() -> None:

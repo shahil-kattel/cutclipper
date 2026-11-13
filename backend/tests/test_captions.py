@@ -241,6 +241,116 @@ def test_caption_job_requires_upload_and_valid_segments() -> None:
     assert [segment.text for segment in request.segments or []] == ["First", "Second"]
 
 
+def test_secondary_caption_track_requires_caption_mode_and_ordered_lines() -> None:
+    secondary = [CaptionSegment(start=1.0, end=2.0, text="नमस्ते")]
+    with pytest.raises(ValidationError):
+        CreateJobRequest(
+            url="https://example.com/video.mp4",
+            mode=JobMode.CLIPS,
+            secondary_segments=secondary,
+        )
+    with pytest.raises(ValidationError):
+        CreateJobRequest(
+            mode=JobMode.CAPTIONS,
+            upload_id="a" * 32,
+            secondary_segments=secondary,
+        )
+    with pytest.raises(ValidationError):
+        CreateJobRequest(
+            mode=JobMode.CAPTIONS,
+            upload_id="a" * 32,
+            segments=[CaptionSegment(start=0.0, end=1.0, text="Hello")],
+            secondary_segments=[
+                CaptionSegment(start=1.0, end=2.0, text="नमस्ते"),
+                CaptionSegment(start=1.5, end=2.5, text="संसार"),
+            ],
+        )
+    request = CreateJobRequest(
+        mode=JobMode.CAPTIONS,
+        upload_id="a" * 32,
+        segments=[CaptionSegment(start=0.0, end=2.0, text="Hello world")],
+        secondary_segments=[
+            CaptionSegment(start=1.0, end=2.0, text="संसार"),
+            CaptionSegment(start=0.0, end=1.0, text="नमस्ते"),
+        ],
+    )
+    assert [segment.text for segment in request.secondary_segments or []] == [
+        "नमस्ते",
+        "संसार",
+    ]
+
+
+def test_bilingual_captions_burn_nepali_line_in_its_own_font(tmp_path: Path) -> None:
+    primary = [Word(0.2, 1.0, "Hello,"), Word(1.1, 2.0, "world.")]
+    secondary = [Word(0.2, 1.0, "नमस्ते,"), Word(1.1, 2.0, "संसार।")]
+    output = tmp_path / "bilingual.ass"
+    result = build_ass(
+        primary,
+        clip_start=0,
+        clip_duration=2.2,
+        settings=CaptionSettings(
+            font="Inter",
+            secondary_enabled=True,
+            secondary_font="Noto Sans Devanagari",
+        ),
+        output_size=(1080, 1920),
+        output_path=output,
+        secondary_words=secondary,
+    )
+    text = output.read_text(encoding="utf-8")
+    assert result.event_count > 0
+    assert "नमस्ते," in text
+    assert "संसार।" in text
+    # The Nepali line selects its own Devanagari face, then resets to the
+    # primary font so the animated English words keep the chosen typeface.
+    assert "{\\fnNoto Sans Devanagari\\fs64}" in text
+    assert "\\N{\\fnInter\\fs80}" in text
+    assert text.index("नमस्ते,") < text.index("Hello,")
+
+
+def test_bilingual_captions_keep_box_alignment_with_secondary_line(tmp_path: Path) -> None:
+    primary = [Word(0.2, 1.0, "Hello,"), Word(1.1, 2.0, "world.")]
+    secondary = [Word(0.2, 1.0, "नमस्ते,"), Word(1.1, 2.0, "संसार।")]
+    output = tmp_path / "bilingual-box.ass"
+    result = build_ass(
+        primary,
+        clip_start=0,
+        clip_duration=2.2,
+        settings=CaptionSettings(
+            word_style=CaptionStyle.BOX,
+            line_style=None,
+            position=CaptionPosition.TOP,
+            secondary_enabled=True,
+            secondary_font="Mukta",
+        ),
+        output_size=(1080, 1920),
+        output_path=output,
+        secondary_words=secondary,
+    )
+    assert result.event_count > 0
+    text = output.read_text(encoding="utf-8")
+    assert "\\p1" in text  # the active-word box still renders
+    assert "नमस्ते," in text
+
+
+def test_bilingual_captions_can_be_disabled(tmp_path: Path) -> None:
+    primary = [Word(0.2, 1.0, "Hello,"), Word(1.1, 2.0, "world.")]
+    secondary = [Word(0.2, 1.0, "नमस्ते,"), Word(1.1, 2.0, "संसार।")]
+    output = tmp_path / "single.ass"
+    build_ass(
+        primary,
+        clip_start=0,
+        clip_duration=2.2,
+        settings=CaptionSettings(font="Inter", secondary_enabled=False),
+        output_size=(1080, 1920),
+        output_path=output,
+        secondary_words=secondary,
+    )
+    text = output.read_text(encoding="utf-8")
+    assert "नमस्ते" not in text
+    assert "संसार" not in text
+
+
 def test_transcribe_request_validates_nepali_quality() -> None:
     request = TranscribeRequest(upload_id="a" * 32, language="ne", quality="best")
     assert request.quality == "best"

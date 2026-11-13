@@ -60,6 +60,10 @@ export interface CaptionSettings {
   letter_spacing: number
   word_spacing: number
   text_case: CaptionTextCase
+  /** Burn the Nepali source line above the translated line. */
+  secondary_enabled: boolean
+  /** Devanagari-capable font for the Nepali source line. */
+  secondary_font: CaptionFont
 }
 
 export interface TransitionSettings {
@@ -108,6 +112,7 @@ export interface JobSource {
 export interface JobOptions {
   mode?: JobMode
   segments?: CaptionSegment[]
+  secondarySegments?: CaptionSegment[]
   language?: string | null
   quality?: TranscriptionQuality | null
   task?: TranscriptionTask

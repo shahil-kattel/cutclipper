@@ -30,17 +30,20 @@ import type {
   TranscriptionTask,
 } from '../types/api'
 import { assetUrl, uploadVideoUrl } from '../lib/api'
+import { CAPTION_FONT_OPTIONS, captionFontStack } from '../lib/captionFonts'
 import { downloadSrt } from '../lib/srt'
 import { cn, formatDuration } from '../lib/utils'
 import { useToast } from '../hooks/useToast'
 import { Button, Pill, SectionCard } from './ui'
 import { CaptionPreview } from './CaptionPreview'
-import { CaptionStyleControls } from './CaptionControls'
+import { CaptionStyleControls, CaptionToggleRow } from './CaptionControls'
 
 interface CaptionStepProps {
   preview: PreviewResponse
   transcript: TranscriptResponse | null
   segments: CaptionSegment[]
+  /** The original spoken-language lines, kept for the bilingual preview. */
+  sourceSegments: CaptionSegment[]
   loading: boolean
   error: string | null
   language: string
@@ -74,6 +77,10 @@ const LANGUAGES = [
   { value: 'hi', label: 'हिन्दी · Hindi' },
 ]
 
+const DEVANAGARI_FONT_OPTIONS = CAPTION_FONT_OPTIONS.filter((font) =>
+  font.scripts.includes('devanagari'),
+)
+
 const EXPORT_RESOLUTIONS: Array<{ value: ExportResolution; label: string; detail: string }> = [
   { value: '1080p', label: '1080p', detail: 'Source size' },
   { value: '4k', label: '4K', detail: 'Upscale' },
@@ -92,8 +99,8 @@ function qualityOptionsFor(
     ? [
         { value: 'fast', label: 'Fast', detail: 'small · quick' },
         { value: 'balanced', label: 'Balanced', detail: 'medium' },
-        { value: 'best', label: 'Best', detail: 'large-v3' },
-        { value: 'maximum', label: 'Maximum', detail: 'large-v3' },
+        { value: 'best', label: 'Best', detail: 'large-v3 · 5' },
+        { value: 'maximum', label: 'Maximum', detail: 'large-v3 · 10' },
       ]
     : [
         { value: 'fast', label: 'Fast', detail: 'base' },
@@ -114,6 +121,7 @@ export function CaptionStep({
   preview,
   transcript,
   segments,
+  sourceSegments,
   loading,
   error,
   language,
@@ -357,6 +365,11 @@ export function CaptionStep({
               <CaptionPreview
                 settings={captions}
                 segments={segments}
+                secondarySegments={
+                  captionView === 'translation' && captions.secondary_enabled
+                    ? sourceSegments
+                    : undefined
+                }
                 words={transcript?.words ?? []}
                 time={currentTime}
                 video={videoRef}
@@ -456,6 +469,52 @@ export function CaptionStep({
                     {hasTranslation ? 'Re-translate' : 'Translate to English'}
                   </Button>
                 </div>
+              </div>
+            ) : null}
+
+            {!loading && task !== 'translate' && hasTranslation ? (
+              <div className="mb-4 space-y-2.5 rounded-xl border-[1.5px] border-ink/25 bg-paper p-3">
+                <CaptionToggleRow
+                  enabled={captions.secondary_enabled}
+                  onChange={(secondary_enabled) =>
+                    onCaptionsChange({ ...captions, secondary_enabled })
+                  }
+                  title="Keep the Nepali line in the video"
+                  ariaLabel="Burn the Nepali subtitle line"
+                  note="Burns the Nepali source text in a Devanagari font above the English subtitle. Both lines share the same timing and position."
+                />
+                {captions.secondary_enabled ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ink/20 bg-paper-soft px-2.5 py-2">
+                    <label
+                      htmlFor="secondary-caption-font"
+                      className="text-[10.5px] font-medium text-ink-soft"
+                    >
+                      Nepali typeface
+                    </label>
+                    <select
+                      id="secondary-caption-font"
+                      value={captions.secondary_font}
+                      onChange={(event) =>
+                        onCaptionsChange({ ...captions, secondary_font: event.target.value })
+                      }
+                      className="paper-select h-8 min-w-0 flex-1 text-[11px]"
+                      style={{ fontFamily: captionFontStack(captions.secondary_font) }}
+                    >
+                      {DEVANAGARI_FONT_OPTIONS.map((font) => (
+                        <option key={font.name} value={font.name}>
+                          {font.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span
+                      className="shrink-0 text-[13px] font-semibold text-ink"
+                      style={{ fontFamily: captionFontStack(captions.secondary_font) }}
+                      aria-hidden="true"
+                    >
+                      नेपाली
+                    </span>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

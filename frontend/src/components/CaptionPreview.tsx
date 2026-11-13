@@ -23,6 +23,8 @@ export const CAPTION_PREVIEW_LOOP_SECONDS = 4.03
 interface CaptionPreviewProps {
   settings: CaptionSettings
   segments?: CaptionSegment[]
+  /** Original-language lines burned above the translated line. */
+  secondarySegments?: CaptionSegment[]
   words?: TranscriptWord[]
   time?: number
   loop?: boolean
@@ -222,6 +224,7 @@ function useVideoClock(video: RefObject<HTMLVideoElement | null> | undefined): n
 export function CaptionPreview({
   settings,
   segments,
+  secondarySegments,
   words,
   time,
   loop = false,
@@ -242,14 +245,23 @@ export function CaptionPreview({
   const group = loop
     ? resolveTimeline(currentTime, undefined, PREVIEW_WORDS)
     : resolveTimeline(currentTime, timeline, previewWords)
+  const secondary =
+    !loop && settings.secondary_enabled
+      ? secondarySegments?.find(
+          (segment) => currentTime >= segment.start - 0.02 && currentTime < segment.end,
+        )
+      : undefined
 
   // This layer sits on top of the video element. It must never intercept
   // pointer input, or the native controls and click-to-play stop working.
   const overlayClass = cn(className, 'pointer-events-none')
 
-  if (!group) return <div ref={ownRef} className={overlayClass} aria-hidden="true" />
+  if (!group && !secondary) {
+    return <div ref={ownRef} className={overlayClass} aria-hidden="true" />
+  }
 
   const font = captionFontOption(settings.font)
+  const secondaryFont = captionFontOption(settings.secondary_font ?? 'Mukta')
   const resolvedFontSize =
     fontSize ??
     Math.max(12, Math.min(72, (settings.font_size / 1080) * Math.max(220, width || 320)))
@@ -257,14 +269,21 @@ export function CaptionPreview({
   const outline = settings.outline_width * scale
   const shadow = settings.shadow * scale
   const letterSpacing = settings.letter_spacing * scale
-  const activeIndex = group.words.reduce(
-    (last, word, index) => (currentTime >= word.start - 0.0001 ? index : last),
-    -1,
-  )
+  const activeIndex = group
+    ? group.words.reduce(
+        (last, word, index) => (currentTime >= word.start - 0.0001 ? index : last),
+        -1,
+      )
+    : -1
   const wordEffect = settings.word_style
   const lineEffect = settings.line_style
-  const groupKey = `${group.start.toFixed(2)}-${group.end.toFixed(2)}-${wordEffect ?? 'none'}-${lineEffect ?? 'none'}`
-  const groupClass = lineEffect ? GROUP_CLASS[lineEffect] : undefined
+  const groupKey = [
+    group ? `${group.start.toFixed(2)}-${group.end.toFixed(2)}` : 'no-group',
+    secondary ? `${secondary.start.toFixed(2)}-${secondary.text}` : 'no-secondary',
+    wordEffect ?? 'none',
+    lineEffect ?? 'none',
+  ].join('-')
+  const groupClass = group && lineEffect ? GROUP_CLASS[lineEffect] : undefined
   const typewriter = lineEffect === 'typewriter'
   const wordGap = `calc(0.26em + ${(settings.word_spacing * scale).toFixed(2)}px)`
 
@@ -283,6 +302,19 @@ export function CaptionPreview({
           ? 'lowercase'
           : 'none',
     WebkitTextStroke: outline > 0 ? `${outline}px rgba(0,0,0,0.74)` : undefined,
+    paintOrder: 'stroke fill',
+    textShadow: shadow > 0 ? `0 ${shadow}px ${shadow * 1.5}px rgba(0,0,0,0.62)` : undefined,
+  }
+  const secondaryStyle: CSSProperties = {
+    fontFamily: captionFontStack(secondaryFont.name),
+    fontWeight: captionFontWeight(settings.font_style),
+    fontStyle: captionFontStyle(settings.font_style),
+    fontSize: `${resolvedFontSize * 0.8}px`,
+    lineHeight: 1.12,
+    color: settings.color,
+    letterSpacing: `${letterSpacing}px`,
+    marginBottom: '0.06em',
+    WebkitTextStroke: outline > 0 ? `${outline * 0.8}px rgba(0,0,0,0.74)` : undefined,
     paintOrder: 'stroke fill',
     textShadow: shadow > 0 ? `0 ${shadow}px ${shadow * 1.5}px rgba(0,0,0,0.62)` : undefined,
   }
@@ -368,7 +400,6 @@ export function CaptionPreview({
         className={`caption-preview-line ${groupClass ?? ''}`}
         style={
           {
-            ...baseStyle,
             position: 'absolute',
             left: '50%',
             top,
@@ -379,36 +410,41 @@ export function CaptionPreview({
           } as CSSProperties
         }
       >
-        {group.words.map((word, wordIndex) => {
-          const active = wordIndex === activeIndex
-          const display = transformCase(word.text, settings.text_case)
-          const visible = visibleCharacterCount(word)
-          const shown = typewriter ? display.slice(0, visible) : display
-          const hidden = typewriter ? display.slice(visible) : ''
-          const activeClass =
-            active && wordEffect === 'bounce'
-              ? 'caption-anim-bounce'
-              : active && wordEffect === 'pop'
-                ? 'caption-anim-pop'
-                : active && wordEffect === 'pulse'
-                  ? 'caption-anim-pulse'
-                  : active && wordEffect === 'wiggle'
-                    ? 'caption-anim-wiggle'
-                    : undefined
-          return (
-            <span
-              key={`${wordIndex}-${active ? activeIndex : 'rest'}-${word.start}`}
-              className={activeClass}
-              style={{
-                ...wordCss(wordIndex),
-                marginRight: wordIndex < group.words.length - 1 ? wordGap : 0,
-              }}
-            >
-              {shown}
-              {hidden ? <span style={{ opacity: 0 }}>{hidden}</span> : null}
-            </span>
-          )
-        })}
+        {secondary ? <div style={secondaryStyle}>{secondary.text}</div> : null}
+        {group ? (
+          <div style={baseStyle}>
+            {group.words.map((word, wordIndex) => {
+              const active = wordIndex === activeIndex
+              const display = transformCase(word.text, settings.text_case)
+              const visible = visibleCharacterCount(word)
+              const shown = typewriter ? display.slice(0, visible) : display
+              const hidden = typewriter ? display.slice(visible) : ''
+              const activeClass =
+                active && wordEffect === 'bounce'
+                  ? 'caption-anim-bounce'
+                  : active && wordEffect === 'pop'
+                    ? 'caption-anim-pop'
+                    : active && wordEffect === 'pulse'
+                      ? 'caption-anim-pulse'
+                      : active && wordEffect === 'wiggle'
+                        ? 'caption-anim-wiggle'
+                        : undefined
+              return (
+                <span
+                  key={`${wordIndex}-${active ? activeIndex : 'rest'}-${word.start}`}
+                  className={activeClass}
+                  style={{
+                    ...wordCss(wordIndex),
+                    marginRight: wordIndex < group.words.length - 1 ? wordGap : 0,
+                  }}
+                >
+                  {shown}
+                  {hidden ? <span style={{ opacity: 0 }}>{hidden}</span> : null}
+                </span>
+              )
+            })}
+          </div>
+        ) : null}
       </div>
     </div>
   )

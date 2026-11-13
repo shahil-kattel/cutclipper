@@ -8,6 +8,7 @@ import logging
 import platform
 import re
 import sys
+import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -178,12 +179,64 @@ async def _drain_segments(
             on_segment(segment)
 
 
+_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+_PUNCTUATION_SPACE_RE = re.compile(r"\s+([,;:!?%)\]।॥])")
+
+
 def _normalize_word(text: str) -> str:
+    """Normalise a decoder token without changing its words.
+
+    Whisper occasionally emits non-breaking or zero-width characters and an
+    ASCII pipe instead of the Devanagari danda. Cleaning those here keeps the
+    word timings and the visible Nepali text consistent.
+    """
+
+    text = unicodedata.normalize("NFC", text)
+    text = text.replace("\u200b", "").replace("\u2060", "").replace("\ufeff", "")
+    if _DEVANAGARI_RE.search(text):
+        text = text.replace("|", "।")
     return " ".join(text.replace("\n", " ").split())
+
+
+def _join_words(texts: list[str]) -> str:
+    text = " ".join(texts)
+    if _DEVANAGARI_RE.search(text):
+        text = _PUNCTUATION_SPACE_RE.sub(r"\1", text)
+    return text.strip()
 
 
 def _word_ends_sentence(text: str) -> bool:
     return bool(_SENTENCE_END_RE.search(text.strip()))
+
+
+def _hindi_marker_hits(text: str) -> int:
+    tokens = [token.strip("।॥,;:!?\"'()[]{}") for token in text.split()]
+    return sum(1 for token in tokens if token in _HINDI_MARKERS)
+
+
+def _looks_like_hindi(text: str) -> bool:
+    """Flag a Nepali-labelled transcript that visibly uses Hindi grammar."""
+
+    if not _DEVANAGARI_RE.search(text):
+        return False
+    words = [word for word in text.split() if word]
+    if not words:
+        return False
+    hits = _hindi_marker_hits(text)
+    return hits >= 3 and hits / len(words) >= 0.02
+
+
+def _nepali_language_warning(words: list[Word], selected_language: str | None) -> str | None:
+    if selected_language != "ne" or not words:
+        return None
+    text = _join_words([word.text for word in words])
+    if not _looks_like_hindi(text):
+        return None
+    return (
+        "Part of this Nepali transcript uses Hindi verb forms (है, हुआ, रहा). "
+        "If the speaker is actually speaking Hindi, choose हिन्दी before transcribing so "
+        "the words and the English translation stay precise."
+    )
 
 
 def build_sentences(words: list[Word]) -> list[Sentence]:
@@ -208,7 +261,7 @@ def build_sentences(words: list[Word]) -> list[Sentence]:
         if should_break:
             start = words[current_indices[0]].start
             end = word.end
-            text = " ".join(words[i].text for i in current_indices).strip()
+            text = _join_words([words[i].text for i in current_indices])
             sentences.append(
                 Sentence(
                     start=round(start, 3),
@@ -289,9 +342,52 @@ def _dedupe_words(words: list[Word], duration: float) -> list[Word]:
     return cleaned
 
 
+# A fluent Nepali prompt is more effective than a negative "not Hindi"
+# instruction: it primes Nepali verb forms, orthography, and the danda while
+# avoiding Hindi vocabulary that a negative prompt would still expose to the
+# decoder as context.
 _NEPALI_PROMPT = (
-    "यो नेपाली भाषामा बोलिएको अडियो हो, हिन्दी होइन। "
-    "शब्दहरू शुद्ध नेपाली हिज्जे, उचित विरामचिन्ह र प्राकृतिक वाक्य संरचनाका साथ लेख्नुहोस्।"
+    "नेपाली भाषाको शुद्ध, स्वाभाविक बोली। "
+    "ठेट नेपाली शब्द, स्पष्ट हिज्जे, दण्ड (।) र प्राकृतिक वाक्य संरचना प्रयोग गरिएको छ। "
+    'उदाहरण: आज हामी काठमाडौंमा भेट्यौं र धेरै कुरा गर्यौं। उहाँले भन्नुभयो, "यो राम्रो छ।" '
+    "नेपालीमा छ, छन्, भयो, गर्छ, गर्नुहुन्छ जस्ता क्रियापद प्रयोग हुन्छन्।"
+)
+# Hindi-only function words that rarely appear in natural Nepali. Used only to
+# warn, never to rewrite a transcript: code-mixed Nepali can contain a few.
+_HINDI_MARKERS = frozenset(
+    {
+        "है",
+        "हैं",
+        "हुआ",
+        "हुई",
+        "हुए",
+        "रहा",
+        "रही",
+        "रहे",
+        "करना",
+        "करता",
+        "करती",
+        "करते",
+        "गया",
+        "गयी",
+        "गए",
+        "किया",
+        "दिया",
+        "लिया",
+        "होगा",
+        "होगी",
+        "था",
+        "थी",
+        "थे",
+        "बहुत",
+        "लेकिन",
+        "अभी",
+        "सबने",
+        "होता",
+        "होती",
+        "होते",
+        "कितना",
+    }
 )
 
 
@@ -302,7 +398,9 @@ _QUALITY_MODELS_NE = {
     "maximum": "large-v3",
 }
 _QUALITY_BEAMS = {"fast": 1, "balanced": 3, "best": 5, "maximum": 5}
-_NEPALI_BEAMS = {"fast": 1, "balanced": 5, "best": 5, "maximum": 5}
+# Maximum spends extra beam search on the largest model for the most precise
+# Nepali transcript the app can produce.
+_NEPALI_BEAMS = {"fast": 1, "balanced": 5, "best": 5, "maximum": 10}
 
 
 def _model_for(
@@ -673,6 +771,9 @@ async def transcribe_audio(
     words = _build_words(segments, duration)
     sentences = build_sentences(words)
     warnings: list[str] = []
+    language_warning = _nepali_language_warning(words, selected_language)
+    if language_warning:
+        warnings.append(language_warning)
     logger.info(
         "transcription complete",
         extra={
@@ -928,6 +1029,9 @@ async def transcribe_windows(
     sentences = build_sentences(words)
     if not words:
         warnings.append("No speech was detected in the selected highlight windows.")
+    language_warning = _nepali_language_warning(words, selected_language)
+    if language_warning:
+        warnings.append(language_warning)
     if on_progress:
         on_progress(1.0, "Speech transcribed")
     logger.info(

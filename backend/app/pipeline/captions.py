@@ -22,8 +22,13 @@ _MAX_LINES = 2
 _MAX_GROUP_WORDS = 9
 _MAX_GROUP_SECONDS = 6.4
 _MIN_EVENT_SECONDS = 0.04
+# The Nepali source line is secondary to the translated line. Keep it slightly
+# smaller so both lines fit inside the same safe area.
+_SECONDARY_SIZE_RATIO = 0.8
+_SECONDARY_MAX_LINES = 2
 _SENTENCE_END_RE = re.compile(r"""[.!?…।॥。！？]["'”’)\]]*$""")
 _DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+_DEVANAGARI_PUNCT_SPACE_RE = re.compile(r"\s+([,;:!?%)\]।॥])")
 _RAINBOW_COLOURS = ("#FF6B8A", "#FFD166", "#7BD389", "#4CC9F0", "#B69CFF")
 _ENTRANCE_DURATIONS_MS: dict[CaptionStyle, int] = {
     CaptionStyle.SLIDE: 420,
@@ -82,6 +87,13 @@ def _ass_inline_colour(value: str) -> str:
 def _clean_caption_text(value: str) -> str:
     cleaned = value.replace("\\", "").replace("{", "(").replace("}", ")")
     return " ".join(cleaned.replace("\r", " ").replace("\n", " ").split()).strip()
+
+
+def _join_caption_text(parts: list[str]) -> str:
+    text = " ".join(parts).strip()
+    if _DEVANAGARI_RE.search(text):
+        text = _DEVANAGARI_PUNCT_SPACE_RE.sub(r"\1", text)
+    return text
 
 
 def _case_text(value: str, text_case: CaptionTextCase) -> str:
@@ -487,6 +499,7 @@ def _box_rectangle(
     y: int,
     alignment: int,
     colour: str,
+    leading_height: float = 0.0,
 ) -> str | None:
     """Draw a marker rectangle behind the active word.
 
@@ -498,11 +511,15 @@ def _box_rectangle(
     line_height = font_size * 1.2
     block_height = line_height * len(group.lines)
     if alignment == 2:
+        # Bottom-aligned: the primary lines stay where they were and the
+        # secondary line grows above them.
         block_top = y - block_height
     elif alignment == 5:
-        block_top = y - block_height / 2
+        # Centred: extra leading lines push the primary block down by half
+        # of their height.
+        block_top = y - block_height / 2 + leading_height / 2
     else:
-        block_top = y
+        block_top = y + leading_height
 
     flat_index = 0
     for line_index, line in enumerate(group.lines):
@@ -562,6 +579,80 @@ def _caption_font_for(refs: list[_WordRef], requested: str) -> str:
     return requested
 
 
+def _clip_refs(
+    words: list[Word],
+    *,
+    clip_start: float,
+    clip_duration: float,
+    text_case: CaptionTextCase | None = None,
+) -> list[_WordRef]:
+    """Keep the words inside a clip and convert them to renderer references."""
+
+    clip_end = clip_start + clip_duration
+    refs: list[_WordRef] = []
+    for word in words:
+        if word.end <= clip_start + 0.01 or word.start >= clip_end - 0.01:
+            continue
+        text = _clean_caption_text(word.text)
+        if text_case is not None:
+            text = _case_text(text, text_case)
+        if not text:
+            continue
+        local_start = max(0.0, word.start - clip_start)
+        local_end = min(clip_duration, word.end - clip_start)
+        if local_end - local_start < 0.015:
+            continue
+        refs.append(_WordRef(text=text, start=local_start, end=local_end))
+    return refs
+
+
+def _secondary_line_prefix(
+    group: _Group,
+    secondary_refs: list[_WordRef],
+    *,
+    font_size: int,
+    target_width: int,
+    secondary_font: str,
+    primary_font: str,
+    primary_font_size: int,
+) -> tuple[str, int]:
+    """Wrap the Nepali line that belongs above this caption group.
+
+    The secondary text is a plain, non-animated line in its own Devanagari
+    font. The ASS reset tags after the line switch the event back to the
+    primary font and size for the animated translation line.
+    """
+
+    selected = [
+        ref
+        for ref in secondary_refs
+        if ref.end > group.start + 0.01 and ref.start < group.end - 0.01
+    ]
+    if not selected:
+        return "", 0
+    available_width = target_width * (1 - 2 * _SAFE_SIDE_FRACTION)
+    lines: list[list[_WordRef]] = [[]]
+    for ref in selected:
+        projected = [*lines[-1], ref]
+        if (
+            lines[-1]
+            and _line_width(projected, font_size) > available_width
+            and len(lines) < _SECONDARY_MAX_LINES
+        ):
+            lines.append([ref])
+        else:
+            lines[-1].append(ref)
+    populated = [line for line in lines if line]
+    if not populated:
+        return "", 0
+    text = "\\N".join(" ".join(ref.text for ref in line) for line in populated)
+    prefix = (
+        f"{{\\fn{secondary_font}\\fs{font_size}}}{text}"
+        f"\\N{{\\fn{primary_font}\\fs{primary_font_size}}}"
+    )
+    return prefix, len(populated)
+
+
 def build_ass(
     words: list[Word],
     *,
@@ -570,6 +661,7 @@ def build_ass(
     settings: CaptionSettings,
     output_size: tuple[int, int],
     output_path: Path,
+    secondary_words: list[Word] | None = None,
 ) -> CaptionRenderResult:
     """Render a subtitle file for a clip. Returns zero events when there is no speech."""
 
@@ -584,21 +676,23 @@ def build_ass(
     word_spacing = settings.word_spacing * scale
     outline_width = settings.outline_width * scale
     shadow = settings.shadow * scale
-    clip_end = clip_start + clip_duration
-    refs: list[_WordRef] = []
-    for word in words:
-        if word.end <= clip_start + 0.01 or word.start >= clip_end - 0.01:
-            continue
-        text = _case_text(_clean_caption_text(word.text), settings.text_case)
-        if not text:
-            continue
-        local_start = max(0.0, word.start - clip_start)
-        local_end = min(clip_duration, word.end - clip_start)
-        if local_end - local_start < 0.015:
-            continue
-        refs.append(_WordRef(text=text, start=local_start, end=local_end))
+    refs = _clip_refs(
+        words,
+        clip_start=clip_start,
+        clip_duration=clip_duration,
+        text_case=settings.text_case,
+    )
     if not refs:
         return CaptionRenderResult(path="", event_count=0, word_count=0)
+    secondary_refs = (
+        _clip_refs(
+            secondary_words,
+            clip_start=clip_start,
+            clip_duration=clip_duration,
+        )
+        if secondary_words and settings.secondary_enabled
+        else []
+    )
 
     groups = _make_groups(
         refs,
@@ -612,6 +706,10 @@ def build_ass(
     line_style = settings.line_style
     separator = _separator(word_spacing, letter_spacing)
     caption_font = _caption_font_for(refs, settings.font)
+    secondary_font_size = max(1, round(font_size * _SECONDARY_SIZE_RATIO))
+    secondary_font = (
+        _caption_font_for(secondary_refs, settings.secondary_font) if secondary_refs else ""
+    )
     bold = -1 if settings.font_style in (CaptionFontStyle.BOLD, CaptionFontStyle.BOLD_ITALIC) else 0
     italic = (
         -1 if settings.font_style in (CaptionFontStyle.ITALIC, CaptionFontStyle.BOLD_ITALIC) else 0
@@ -676,6 +774,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
         hold_end = min(clip_duration, group.end + 0.16, max(group.end, next_start - 0.01))
         flat_words = [word for line in group.lines for word in line]
+        secondary_prefix, secondary_lines = _secondary_line_prefix(
+            group,
+            secondary_refs,
+            font_size=secondary_font_size,
+            target_width=width,
+            secondary_font=secondary_font,
+            primary_font=caption_font,
+            primary_font_size=font_size,
+        )
+        leading_height = secondary_lines * secondary_font_size * 1.2
 
         if line_style == CaptionStyle.TYPEWRITER:
             position_tag = f"{{\\an{alignment}\\pos({x},{y})\\q0}}"
@@ -691,6 +799,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         y=y,
                         alignment=alignment,
                         colour=active_colour,
+                        leading_height=leading_height,
                     )
                     if rectangle:
                         add_event(
@@ -719,7 +828,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     _active_word_index(flat_words, reveal),
                     reveal_before=reveal,
                 )
-                add_event(reveal, end, text, tag=position_tag)
+                add_event(reveal, end, secondary_prefix + text, tag=position_tag)
         elif word_style is not None:
             for word_index, word in enumerate(flat_words):
                 start = word.start
@@ -736,6 +845,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         y=y,
                         alignment=alignment,
                         colour=active_colour,
+                        leading_height=leading_height,
                     )
                     if rectangle:
                         add_event(
@@ -756,7 +866,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 add_event(
                     start,
                     end,
-                    style_text(group, word_index),
+                    secondary_prefix + style_text(group, word_index),
                     tag=_word_event_entrance_tag(
                         line_style,
                         elapsed=elapsed,
@@ -771,7 +881,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             add_event(
                 group.start,
                 hold_end,
-                text,
+                secondary_prefix + text,
                 tag=_group_entrance_tag(
                     line_style,
                     x=x,
@@ -804,7 +914,7 @@ def build_caption_segments(
 
     def flush() -> None:
         nonlocal current
-        text = " ".join(_clean_caption_text(word.text) for word in current).strip()
+        text = _join_caption_text([_clean_caption_text(word.text) for word in current])
         if current and text:
             segments.append(
                 CaptionSegment(

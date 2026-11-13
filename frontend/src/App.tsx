@@ -491,10 +491,18 @@ function AppContent() {
       captions: { ...captionSettings, enabled: true },
     }
     setSettings(renderSettings)
+    // When an English translation exists and bilingual captions are on, burn
+    // the Nepali source lines in a Devanagari font above the English line.
+    const useBilingual =
+      Boolean(captionTranslation?.length) &&
+      captionSettings.secondary_enabled &&
+      captionSegments.length > 0
+    const renderSegments = useBilingual ? (captionTranslation ?? []) : activeCaptionSegments
     try {
       const newJob = await createJob({ uploadId: preview.upload_id }, renderSettings, {
         mode: 'captions',
-        segments: activeCaptionSegments,
+        segments: renderSegments,
+        secondarySegments: useBilingual ? captionSegments : undefined,
         language: captionLanguage === 'auto' ? null : captionLanguage,
       })
       if (generationToken.current !== token) {
@@ -519,7 +527,9 @@ function AppContent() {
     captionExportQuality,
     captionLanguage,
     captionResolution,
+    captionSegments,
     captionSettings,
+    captionTranslation,
     preview,
     toast,
   ])
@@ -696,6 +706,7 @@ function AppContent() {
                   preview={preview}
                   transcript={captionTranscript}
                   segments={activeCaptionSegments}
+                  sourceSegments={captionSegments}
                   loading={captionLoading}
                   error={captionError}
                   language={captionLanguage}
