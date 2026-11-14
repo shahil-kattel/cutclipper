@@ -54,6 +54,8 @@ interface CaptionStepProps {
   onTaskChange: (task: TranscriptionTask) => void
   onTranscribe: (force: boolean, task?: TranscriptionTask) => void
   onSegmentsChange: (segments: CaptionSegment[]) => void
+  /** Edits the Roman track directly when Roman is selected. */
+  onRomanSegmentsChange: (segments: CaptionSegment[]) => void
   captionView: 'source' | 'translation'
   hasTranslation: boolean
   translating: boolean
@@ -130,6 +132,7 @@ export function CaptionStep({
   onTaskChange,
   onTranscribe,
   onSegmentsChange,
+  onRomanSegmentsChange,
   captionView,
   hasTranslation,
   translating,
@@ -150,9 +153,6 @@ export function CaptionStep({
   const stageRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
 
-  const activeIndex = segments.findIndex(
-    (segment) => currentTime >= segment.start - 0.02 && currentTime < segment.end,
-  )
   const nepaliMode = language === 'ne' || transcript?.language === 'ne'
   const sourceLabel =
     transcript?.language === 'ne' || language === 'ne'
@@ -172,13 +172,21 @@ export function CaptionStep({
   const srtSegments =
     romanScript && captionView === 'source' && romanSegments ? romanSegments : segments
   const srtNeedsRoman = romanScript && captionView === 'source' && (!romanSegments || romanising)
+  // In Roman mode the editor edits the Roman track directly; the Devanagari
+  // source stays available for switching back and for translation.
+  const romanEditing = romanScript && captionView === 'source' && Boolean(romanSegments)
+  const editorSegments = romanEditing ? (romanSegments ?? []) : segments
+  const editorOnChange = romanEditing ? onRomanSegmentsChange : onSegmentsChange
+  const activeIndex = editorSegments.findIndex(
+    (segment) => currentTime >= segment.start - 0.02 && currentTime < segment.end,
+  )
 
   const validateSegments = (): boolean => {
-    if (!segments.length) {
+    if (!editorSegments.length) {
       toast.info('Add or transcribe at least one caption line first.')
       return false
     }
-    const invalid = segments.some(
+    const invalid = editorSegments.some(
       (segment) =>
         !segment.text.trim() ||
         segment.end <= segment.start ||
@@ -189,7 +197,7 @@ export function CaptionStep({
       toast.error('Fix the caption lines with empty text or invalid timing before rendering.')
       return false
     }
-    const ordered = [...segments].sort((first, second) => first.start - second.start)
+    const ordered = [...editorSegments].sort((first, second) => first.start - second.start)
     for (let index = 1; index < ordered.length; index += 1) {
       const current = ordered[index]
       const previous = ordered[index - 1]
@@ -255,7 +263,7 @@ export function CaptionStep({
           </Pill>
           <Pill className="gap-1.5">
             <Captions className="h-3 w-3" aria-hidden="true" />
-            {segments.length} lines
+            {editorSegments.length} lines
           </Pill>
         </div>
       </motion.div>
@@ -390,8 +398,8 @@ export function CaptionStep({
                   </p>
                   <p className="mt-0.5 max-w-xl text-[10px] leading-4 text-ink-soft">
                     Roman writes the Nepali words in Latin letters; English words in the speech stay
-                    in English either way. The transcript editor stays in Devanagari and shows the
-                    Roman caption underneath each line.
+                    in English either way. Switching to Roman makes those lines editable directly;
+                    the Devanagari source is kept for translation and switching back.
                   </p>
                 </div>
                 <NepaliScriptToggle
@@ -487,7 +495,7 @@ export function CaptionStep({
               </div>
             ) : null}
 
-            {!loading && !segments.length && !transcript ? (
+            {!loading && !editorSegments.length && !transcript ? (
               <div className="mb-3 rounded-xl border border-dashed border-ink/30 bg-paper px-4 py-5 text-center">
                 <Type className="mx-auto h-5 w-5 text-ink-faint" aria-hidden="true" />
                 <p className="mt-2 text-[12px] font-medium text-ink-soft">
@@ -507,15 +515,15 @@ export function CaptionStep({
 
             {!loading ? (
               <CaptionLineEditor
-                segments={segments}
+                segments={editorSegments}
                 duration={preview.duration}
-                onChange={onSegmentsChange}
+                onChange={editorOnChange}
                 currentTime={currentTime}
                 activeIndex={activeIndex}
                 onSeek={jumpTo}
                 romanSegments={romanSegments}
                 romanising={romanising}
-                showRoman={romanScript && captionView === 'source'}
+                showRoman={!romanEditing && (romanSegments?.length ?? 0) > 0}
                 disabled={generating}
               />
             ) : null}
@@ -709,7 +717,7 @@ export function CaptionStep({
             <div className="paper-inset mt-6 flex flex-wrap items-center justify-between gap-3 px-3.5 py-3">
               <div className="flex items-center gap-2 text-[11px] text-ink-soft">
                 <Check className="h-3.5 w-3.5 text-teal/80" aria-hidden="true" />
-                {segments.length} editable lines · {transcript?.words.length ?? 0} words
+                {editorSegments.length} editable lines · {transcript?.words.length ?? 0} words
               </div>
               <div className="flex items-center gap-2">
                 <Button

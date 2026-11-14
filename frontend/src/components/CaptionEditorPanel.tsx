@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Captions,
+  FileText,
   Languages,
   LoaderCircle,
   Plus,
@@ -513,6 +514,7 @@ export function CaptionEditorDrawer({
   notice,
   applyLabel = 'Save lines',
   onApply,
+  onDownloadSrt,
   applying = false,
   applyDisabled = false,
   title = 'Edit captions',
@@ -537,6 +539,7 @@ export function CaptionEditorDrawer({
   notice?: string | null
   applyLabel?: string
   onApply?: () => void | Promise<void>
+  onDownloadSrt?: () => void
   applying?: boolean
   applyDisabled?: boolean
   title?: string
@@ -670,7 +673,7 @@ export function CaptionEditorDrawer({
                     onChange={onChange}
                     romanSegments={romanSegments}
                     romanising={romanising}
-                    showRoman={script === 'roman'}
+                    showRoman={script !== 'roman' && (romanSegments?.length ?? 0) > 0}
                   />
                 </>
               )}
@@ -683,8 +686,19 @@ export function CaptionEditorDrawer({
                   : 'Timing and edits are used by the preview, SRT, and burned video.'}
               </span>
               <div className="flex items-center gap-2">
+                {onDownloadSrt ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={FileText}
+                    onClick={onDownloadSrt}
+                    disabled={!segments.length}
+                  >
+                    Download .SRT
+                  </Button>
+                ) : null}
                 <Button variant="ghost" size="sm" onClick={onClose} disabled={applying}>
-                  Cancel
+                  Close
                 </Button>
                 {onApply ? (
                   <Button

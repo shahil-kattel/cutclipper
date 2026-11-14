@@ -632,12 +632,16 @@ writes it phonetically in Roman letters. Add the spelling to
   before grouping so the preview and burned output agree.
 - Caption editor on every page except home:
   `frontend/src/components/CaptionEditorPanel.tsx` is the shared drawer for
-  text, timing, split/merge/add/delete, and the देवनागरी/Roman toggle. On the
-  Download screen it loads the burned-in lines from
-  `GET /api/jobs/{id}/captions`; applying sends those lines to
-  `POST /api/jobs/{id}/restyle`, which re-renders the same cuts and style with
-  the edited words. On the Style screen the edited lines are passed to the next
-  `POST /api/jobs` render.
+  text, timing, split/merge/add/delete, and the देवनागरी/Roman toggle. Edits
+  save instantly to `frontend/src/lib/captionDrafts.ts` (localStorage) and
+  update the `.SRT` download without a render. Switching to Roman edits the
+  Roman track directly; the Devanagari source stays canonical for translation.
+  On the Download screen the drawer loads the burned-in lines from
+  `GET /api/jobs/{id}/captions`; the optional **Update video** action sends the
+  edited track to `POST /api/jobs/{id}/restyle`, which re-renders the same cuts
+  and style. On the Style screen the edited lines are passed to the next
+  `POST /api/jobs` render. Roman is used for the render when it has manual
+  edits; otherwise the server transliterates the source.
 - Nepali → English translation prompt: `backend/app/services/translator.py`.
   English-only lines are kept unchanged; only Nepali and mixed lines are sent
   through translation. Translation always uses the canonical Devanagari lines,

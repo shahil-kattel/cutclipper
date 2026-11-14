@@ -6,6 +6,7 @@ import {
   Check,
   Download,
   ExternalLink,
+  FileText,
   Info,
   Palette,
   Pause,
@@ -18,8 +19,16 @@ import {
   VolumeX,
   Zap,
 } from 'lucide-react'
-import type { CaptionPosition, CaptionSegment, CaptionSettings, Clip, Job } from '../types/api'
+import type {
+  CaptionPosition,
+  CaptionSegment,
+  CaptionSettings,
+  Clip,
+  Job,
+  NepaliScript,
+} from '../types/api'
 import { assetUrl, downloadAllUrl, errorMessage } from '../lib/api'
+import { downloadSrt } from '../lib/srt'
 import {
   clamp,
   formatBytes,
@@ -41,8 +50,14 @@ interface ResultsStepProps {
   canEditSettings?: boolean
   /** Source-language lines from the editor, used for a faithful style preview. */
   captionSegments?: CaptionSegment[]
+  /** Roman lines when the user has edited or generated that track. */
+  captionRomanSegments?: CaptionSegment[] | null
+  /** Script currently selected for the edited caption track. */
+  captionScript?: NepaliScript
   /** Opens the shared caption editor (text, timing, and script). */
   onEditCaptions?: () => void
+  /** Rewrites the MP4 with the edited lines. Text edits do not require this. */
+  onUpdateVideo?: () => Promise<void>
 }
 
 export function ResultsStep({
@@ -52,10 +67,14 @@ export function ResultsStep({
   onRestyle,
   canEditSettings = true,
   captionSegments,
+  captionRomanSegments,
+  captionScript = 'devanagari',
   onEditCaptions,
+  onUpdateVideo,
 }: ResultsStepProps) {
   const toast = useToast()
   const [editingCaptions, setEditingCaptions] = useState(false)
+  const [updatingVideo, setUpdatingVideo] = useState(false)
   const [captionDraft, setCaptionDraft] = useState<CaptionSettings>(() =>
     structuredClone(job.settings.captions),
   )
@@ -76,6 +95,22 @@ export function ResultsStep({
   const primaryClip = clips[0]
   const activePreviewClip = clips.find((clip) => clip.id === previewClipId) ?? primaryClip
   const primaryUrl = captionMode && primaryClip ? assetUrl(primaryClip.download_url) : allUrl
+  // The edited track is what the .SRT export uses. Text edits are saved as
+  // they are typed; the MP4 only changes when Update video is pressed.
+  const editedCaptionSegments =
+    captionScript === 'roman' && captionRomanSegments?.length
+      ? captionRomanSegments
+      : previewCaptionSegments
+
+  const handleUpdateVideo = async () => {
+    if (!onUpdateVideo || updatingVideo) return
+    setUpdatingVideo(true)
+    try {
+      await onUpdateVideo()
+    } finally {
+      setUpdatingVideo(false)
+    }
+  }
 
   const previewClip = (clip: Clip) => {
     setPreviewClipId(clip.id)
@@ -141,6 +176,32 @@ export function ResultsStep({
           {onEditCaptions ? (
             <Button variant="secondary" size="sm" onClick={onEditCaptions} icon={Captions}>
               Edit caption text
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={FileText}
+            disabled={!editedCaptionSegments.length}
+            onClick={() =>
+              downloadSrt(
+                editedCaptionSegments,
+                `${job.video?.title || 'cutclipper-captions'}.srt`,
+              )
+            }
+          >
+            Download .SRT
+          </Button>
+          {onUpdateVideo ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={RotateCcw}
+              loading={updatingVideo}
+              disabled={!editedCaptionSegments.length || updatingVideo}
+              onClick={() => void handleUpdateVideo()}
+            >
+              Update video
             </Button>
           ) : null}
           {!editingCaptions ? (
@@ -219,9 +280,19 @@ export function ResultsStep({
                 <CaptionQuickEdit
                   job={job}
                   segments={previewCaptionSegments}
+                  romanSegments={captionRomanSegments}
+                  script={captionScript}
                   draft={captionDraft}
                   onDraftChange={setCaptionDraft}
-                  onRestyle={onRestyle}
+                  onRestyle={(captions) =>
+                    onRestyle(
+                      captions,
+                      (captions.nepali_script ?? 'devanagari') === 'roman' &&
+                        captionRomanSegments?.length
+                        ? captionRomanSegments
+                        : previewCaptionSegments,
+                    )
+                  }
                   onEditLines={() => onEditCaptions?.()}
                   onOpenFull={() => {
                     setEditingCaptions(true)
@@ -243,9 +314,17 @@ export function ResultsStep({
           <CaptionExportStudio
             key={job.id}
             job={job}
-            segments={previewCaptionSegments}
             initialCaptions={captionDraft}
-            onApply={onRestyle}
+            segments={editedCaptionSegments}
+            onApply={(captions) =>
+              onRestyle(
+                captions,
+                (captions.nepali_script ?? 'devanagari') === 'roman' &&
+                  captionRomanSegments?.length
+                  ? captionRomanSegments
+                  : previewCaptionSegments,
+              )
+            }
             onClose={() => setEditingCaptions(false)}
             onEditText={onEditCaptions}
           />
@@ -664,6 +743,8 @@ const QUICK_POSITIONS: Array<{ value: CaptionPosition; label: string }> = [
 function CaptionQuickEdit({
   job,
   segments,
+  romanSegments,
+  script,
   draft,
   onDraftChange,
   onRestyle,
@@ -672,6 +753,8 @@ function CaptionQuickEdit({
 }: {
   job: Job
   segments?: CaptionSegment[]
+  romanSegments?: CaptionSegment[] | null
+  script?: NepaliScript
   draft: CaptionSettings
   onDraftChange: (captions: CaptionSettings) => void
   onRestyle: (captions: CaptionSettings, segments?: CaptionSegment[]) => Promise<void>
@@ -683,7 +766,11 @@ function CaptionQuickEdit({
   const clip = job.clips[0]
   const previewWidth = clip?.width ?? 1080
   const previewHeight = clip?.height ?? 1920
-  const previewSegment = segments?.find((segment) => segment.text.trim())
+  const typedSegments =
+    (script ?? draft.nepali_script ?? 'devanagari') === 'roman' && romanSegments?.length
+      ? romanSegments
+      : segments
+  const previewSegment = typedSegments?.find((segment) => segment.text.trim())
   const previewTime = previewSegment
     ? Math.min(
         previewSegment.start + 0.01,
@@ -717,7 +804,7 @@ function CaptionQuickEdit({
             Caption style
           </p>
           <p className="mt-1 text-[11px] font-medium leading-4 text-ink">
-            Tune the size and placement here, then re-render.
+            Text edits save instantly; style changes and the MP4 update on the next render.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
