@@ -59,7 +59,6 @@ const CAPTION_LANGUAGES = [
   { value: 'auto', label: 'Detect language' },
   { value: 'ne', label: 'नेपाली · Nepali' },
   { value: 'en', label: 'English' },
-  { value: 'hi', label: 'हिन्दी · Hindi' },
 ]
 
 function captionQualityOptions() {
@@ -614,7 +613,7 @@ export function SettingsStep({
                       </span>
                     ) : null}
                   </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                     <div>
                       <label
                         htmlFor="clip-caption-language"
@@ -688,7 +687,7 @@ export function SettingsStep({
                     {translateCaptions
                       ? 'Whisper translates the spoken audio to English in one pass; the selected style below is applied to the English captions.'
                       : captionLanguage === 'ne'
-                        ? 'All Nepali captions use the Nepali fine-tuned Whisper model — smaller vanilla models are never used. English words mixed into the speech stay in Latin script while Nepali stays in Devanagari. The first run downloads about 1.5 GB. If auto-detect picks Hindi for accented Nepali, choose नेपाली explicitly. You can edit and translate lines in the Caption studio before rendering.'
+                        ? 'All Nepali captions use the Nepali fine-tuned Whisper model — smaller vanilla models are never used. English words mixed into the speech stay in Latin script while Nepali stays in Devanagari. The first run downloads about 1.5 GB. Auto-detection only chooses English or Nepali. You can edit and translate lines in the Caption studio before rendering.'
                         : 'Nepali is detected automatically and always uses the fine-tuned model. For other languages, Fast / Balanced / Best map to base / small / medium.'}
                   </p>
                 </div>

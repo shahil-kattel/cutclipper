@@ -75,7 +75,6 @@ const LANGUAGES = [
   { value: 'auto', label: 'Detect language' },
   { value: 'en', label: 'English' },
   { value: 'ne', label: 'नेपाली · Nepali' },
-  { value: 'hi', label: 'हिन्दी · Hindi' },
 ]
 
 const DEVANAGARI_FONT_OPTIONS = CAPTION_FONT_OPTIONS.filter((font) =>
@@ -777,7 +776,7 @@ export function CaptionStep({
             </div>
 
             <div className="mt-5 space-y-4 rounded-xl border-[1.5px] border-ink/25 bg-paper p-3.5">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3">
                 <div>
                   <label
                     htmlFor="caption-language"

@@ -93,7 +93,6 @@ async def api_config(request: Request) -> ApiConfig:
             {"code": "auto", "label": "Detect language"},
             {"code": "en", "label": "English"},
             {"code": "ne", "label": "नेपाली (Nepali)"},
-            {"code": "hi", "label": "हिन्दी (Hindi)"},
         ],
         default_settings=ClipSettings(),
     )
@@ -214,11 +213,6 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
         warnings.append(
             "Nepali was detected, so CutClipper used the Nepali fine-tuned model and Devanagari "
             "captions automatically."
-        )
-    elif transcript.language == "hi" and language is None:
-        warnings.append(
-            "Hindi was detected. If this video is actually Nepali, choose नेपाली so the Nepali "
-            "fine-tuned model and Devanagari captions are used."
         )
     if not segments:
         warnings.append("No speech was detected in this video. You can add caption lines manually.")

@@ -407,9 +407,10 @@ current matcher does a direct lookup, then strips one case suffix from
 - Mixed-script tokens (Latin stem + Devanagari suffix) are intentional and
   readable in Nepali digital writing.
 
-### Coverage gaps worth closing
+### Spelling variants now covered
 
-Common ASR spelling variants that are not yet keys:
+The glossary includes these common ASR spelling variants. Add the spelling that
+appears in a real transcript rather than guessing:
 
 - एडिटिङ (alongside इडिटिङ), एडिट, इडिट
 - डाटा, डाटाबेस (alongside डेटा, डेटाबेस)
@@ -425,7 +426,7 @@ Common ASR spelling variants that are not yet keys:
 - अपलोड / अप्लोड, अफलाईन, अनलाईन, ईमेल — pick the spellings the ASR actually
   emits and add only those.
 
-Case-suffix gaps:
+Case-suffix coverage:
 
 - Plural written with short ु: हरुले, हरुको, हरुमा, हरुबाट, हरुसँग, हरुलाई,
   हरुका, हरुकी — ASR often writes हरु instead of हरू.
@@ -488,9 +489,13 @@ Use these as ASR/translation smoke tests.
 
 ## 8. Where this plugs into CutClipper
 
-- Language codes and detection: `backend/app/api/routes.py` (`ne`, `hi`, `en`).
-- Nepali models, prompt, chunking, warnings, punctuation and spelling rules:
-  `backend/app/services/transcriber.py`.
+- Language codes and detection: `backend/app/api/routes.py` (`ne`, `en` only;
+  Hindi-like detections are folded into `ne` so the UI never offers Hindi).
+- Nepali models, prompt, chunking, coverage repair, warnings, punctuation and
+  spelling rules: `backend/app/services/transcriber.py`. The accurate model
+  transcribes 12-second overlapping windows, then `_repair_accurate_gaps`
+  re-decodes any speech region (found with ffmpeg `silencedetect`) that has a
+  wordless hole longer than 1.5 seconds.
 - Word-level timing: `CaptionSegment.words` carries the ASR's exact word times;
   `words_from_segments` uses them when the line still has the same token count
   and otherwise distributes time by syllable weight (`app/pipeline/timing.py`).

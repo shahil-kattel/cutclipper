@@ -244,23 +244,50 @@ _NEPALI_CASE_SUFFIXES = tuple(
             "हरूलाई",
             "हरुलाई",
             "हरूले",
+            "हरुले",
             "हरूको",
+            "हरुको",
             "हरूमा",
+            "हरुमा",
             "हरूबाट",
+            "हरुबाट",
             "हरूसँग",
+            "हरुसँग",
+            "हरूका",
+            "हरुका",
+            "हरूकी",
+            "हरुकी",
+            "हरूकै",
+            "हरुकै",
             "हरू",
+            "हरु",
             "देखि",
+            "देखी",
             "भन्दा",
             "जस्तै",
             "जस्तो",
+            "जस्ता",
+            "जस्ती",
             "लाई",
             "बाट",
+            "बाटै",
             "सँग",
+            "संग",
+            "सँगै",
+            "संगै",
             "सम्म",
+            "सम्मै",
+            "तिर",
+            "बिना",
+            "विना",
+            "बाहेक",
+            "द्वारा",
             "को",
             "का",
             "की",
+            "कै",
             "मा",
+            "मै",
             "ले",
         },
         key=len,
@@ -327,10 +354,25 @@ _NEPALI_PHRASE_CORRECTIONS = (
 )
 _REPEATED_WORD_RE = re.compile(r"(?<!\S)(\S+)\s+\1(?!\S)")
 _REPEATED_PUNCT_RE = re.compile(r"([।॥])\1{2,}")
+# Word-level mapping intentionally keeps the Nepali case ending on an English
+# stem (``YouTubeमा``). These phrases are product names, so they should stay
+# one Latin word rather than "chat GPT".
+_ENGLISH_PHRASE_CORRECTIONS = (
+    (
+        re.compile(r"(?<!\S)chat\s+GPT((?:को|ले|मा|का|की|सँग|बाट)?)(?!\S)"),
+        r"ChatGPT\1",
+    ),
+    (
+        re.compile(r"(?<!\S)[Oo]pen\s+AI((?:को|ले|मा|का|की|सँग|बाट)?)(?!\S)"),
+        r"OpenAI\1",
+    ),
+)
 
 
 def _join_words(texts: list[str]) -> str:
     text = " ".join(texts)
+    for pattern, replacement in _ENGLISH_PHRASE_CORRECTIONS:
+        text = pattern.sub(replacement, text)
     if _DEVANAGARI_RE.search(text):
         text = _PUNCTUATION_SPACE_RE.sub(r"\1", text)
         text = _REPEATED_WORD_RE.sub(r"\1", text)
@@ -342,36 +384,6 @@ def _join_words(texts: list[str]) -> str:
 
 def _word_ends_sentence(text: str) -> bool:
     return bool(_SENTENCE_END_RE.search(text.strip()))
-
-
-def _hindi_marker_hits(text: str) -> int:
-    tokens = [token.strip("।॥,;:!?\"'()[]{}") for token in text.split()]
-    return sum(1 for token in tokens if token in _HINDI_MARKERS)
-
-
-def _looks_like_hindi(text: str) -> bool:
-    """Flag a Nepali-labelled transcript that visibly uses Hindi grammar."""
-
-    if not _DEVANAGARI_RE.search(text):
-        return False
-    words = [word for word in text.split() if word]
-    if not words:
-        return False
-    hits = _hindi_marker_hits(text)
-    return hits >= 3 and hits / len(words) >= 0.02
-
-
-def _nepali_language_warning(words: list[Word], selected_language: str | None) -> str | None:
-    if selected_language != "ne" or not words:
-        return None
-    text = _join_words([word.text for word in words])
-    if not _looks_like_hindi(text):
-        return None
-    return (
-        "Part of this Nepali transcript uses Hindi verb forms (है, हुआ, रहा). "
-        "If the speaker is actually speaking Hindi, choose हिन्दी before transcribing so "
-        "the words and the English translation stay precise."
-    )
 
 
 def build_sentences(words: list[Word]) -> list[Sentence]:
@@ -507,40 +519,6 @@ _NEPALI_PROMPT = (
     'उदाहरण: आज हामी काठमाडौंमा भेट्यौं र धेरै कुरा गर्यौं। उहाँले भन्नुभयो, "यो राम्रो छ।" '
     "नेपालीमा छ, छन्, भयो, गर्छ, गर्नुहुन्छ जस्ता क्रियापद प्रयोग हुन्छन्।"
 )
-# Hindi-only function words that rarely appear in natural Nepali. Used only to
-# warn, never to rewrite a transcript: code-mixed Nepali can contain a few.
-_HINDI_MARKERS = frozenset(
-    {
-        "है",
-        "हैं",
-        "हुआ",
-        "हुई",
-        "हुए",
-        "रहा",
-        "करना",
-        "करता",
-        "करती",
-        "करते",
-        "गया",
-        "गयी",
-        "किया",
-        "दिया",
-        "लिया",
-        "होगा",
-        "होगी",
-        "था",
-        "थी",
-        "थे",
-        "अभी",
-        "सबने",
-        "होता",
-        "होती",
-        "होते",
-        "कितना",
-    }
-)
-
-
 _QUALITY_MODELS_NE = {
     "fast": "small",
     "balanced": "medium",
@@ -550,11 +528,23 @@ _QUALITY_MODELS_NE = {
 _QUALITY_BEAMS = {"fast": 1, "balanced": 3, "best": 5, "maximum": 5}
 # Maximum spends extra beam search on the most precise Nepali model.
 _NEPALI_BEAMS = {"fast": 1, "balanced": 5, "best": 5, "maximum": 10}
+# Auto-detection is deliberately limited to the two languages this app
+# captions. Hindi and other Devanagari-script languages are treated as Nepali
+# instead of surfacing a third language in the UI.
+_SUPPORTED_SPOKEN_LANGUAGES = frozenset({"ne", "en"})
+_NEPALI_LIKE_LANGUAGES = frozenset({"ne", "hi", "mr", "sa"})
 # The fine-tuned model was trained on short utterances. Long files are
 # transcribed in short, overlapping windows so it cannot drop a clause at
 # Whisper's 30-second boundary.
 _ACCURATE_CHUNK_SECONDS = 12.0
 _ACCURATE_CHUNK_OVERLAP = 3.0
+# Coverage repair re-transcribes only the speech the first pass missed. Both
+# limits keep a pathological file (continuous music, a broken model output)
+# from turning one job into an unbounded second transcription.
+_REPAIR_MAX_ROUNDS = 4
+_REPAIR_MAX_ATTEMPTS = 10
+_REPAIR_MAX_CLIP_SECONDS = 16.0
+_REPAIR_BUDGET_SECONDS = 240.0
 
 
 def _accurate_nepali_model(settings: Settings) -> str:
@@ -634,10 +624,9 @@ def _beam_for_model(
     model_size: str | None,
 ) -> int:
     if _is_nepali_accurate_model(model_size, settings):
-        # Greedy decoding matches beam 5 for this fine-tune and is roughly
-        # three times faster, which makes the short overlapping windows
-        # practical. Maximum keeps a small beam for difficult recordings.
-        return 5 if quality == "maximum" else 1
+        # Accuracy is the priority for Nepali: every tier uses beam search on
+        # the fine-tuned model, even though it is slower than greedy decoding.
+        return 5
     return _beam_for(quality, settings, language)
 
 
@@ -721,7 +710,7 @@ async def _detect_language(
     try:
         from faster_whisper.audio import decode_audio
 
-        votes: dict[str, float] = {}
+        votes: dict[str, float] = {"ne": 0.0, "en": 0.0}
         samples_seen = 0
         for window_start, window_length in _detection_windows(duration):
             sample_path = audio_path
@@ -765,10 +754,17 @@ async def _detect_language(
                 continue
             samples_seen += 1
             probability = float(probability or 0.0)
-            votes[language] = votes.get(language, 0.0) + probability
             items = all_probs.items() if isinstance(all_probs, dict) else (all_probs or [])
             for code, score in items:
-                votes[str(code)] = votes.get(str(code), 0.0) + float(score) * 0.35
+                code = str(code)
+                if code == "en":
+                    votes["en"] += float(score) * 0.35
+                elif code in _NEPALI_LIKE_LANGUAGES:
+                    votes["ne"] += float(score) * 0.35
+            if language == "en":
+                votes["en"] += probability
+            elif language in _NEPALI_LIKE_LANGUAGES:
+                votes["ne"] += probability
             logger.info(
                 "language detection sample",
                 extra={
@@ -777,10 +773,12 @@ async def _detect_language(
                     "probability": round(probability, 3),
                 },
             )
-        if not votes:
+        total = sum(votes.values())
+        if total <= 0:
             return None, None
         language, score = max(votes.items(), key=lambda item: item[1])
-        total = sum(votes.values())
+        if language not in _SUPPORTED_SPOKEN_LANGUAGES:
+            return None, None
         confidence = score / total if total > 0 else 0.0
         logger.info(
             "detected source language",
@@ -853,6 +851,141 @@ def _start_engine(
     return _start_sequential(model_size, device, compute_type, cpu_threads, audio_path, kwargs)
 
 
+def _parse_speech_regions(stderr: str, duration: float) -> list[tuple[float, float]]:
+    """Turn ffmpeg ``silencedetect`` output into speech-only intervals."""
+
+    silences: list[tuple[float, float]] = []
+    pending: float | None = None
+    for line in stderr.splitlines():
+        if "silence_start:" in line:
+            try:
+                pending = float(line.split("silence_start:", 1)[1].split()[0])
+            except (IndexError, ValueError):
+                continue
+        elif "silence_end:" in line and pending is not None:
+            try:
+                end = float(line.split("silence_end:", 1)[1].split()[0])
+            except (IndexError, ValueError):
+                continue
+            silences.append((max(0.0, pending), min(duration, end)))
+            pending = None
+    if pending is not None:
+        silences.append((max(0.0, pending), duration))
+    silences.sort()
+
+    regions: list[tuple[float, float]] = []
+    cursor = 0.0
+    for start, end in silences:
+        if start > cursor + 0.05:
+            regions.append((round(cursor, 3), round(min(start, duration), 3)))
+        cursor = max(cursor, end)
+    if cursor < duration - 0.05:
+        regions.append((round(cursor, 3), round(duration, 3)))
+    if not silences and duration > 0.05:
+        return [(0.0, round(duration, 3))]
+    return [(start, end) for start, end in regions if end - start >= 0.3]
+
+
+async def _speech_regions(
+    audio_path: Path,
+    duration: float,
+    settings: Settings,
+    *,
+    cancel_event: Event,
+) -> list[tuple[float, float]] | None:
+    """Detect speech intervals without loading the whole file into memory."""
+
+    tools = get_media_tools(settings)
+    command = [
+        tools.ffmpeg,
+        "-nostdin",
+        "-hide_banner",
+        "-i",
+        str(audio_path),
+        "-af",
+        "silencedetect=noise=-35dB:d=0.35",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        result = await run_process(
+            command,
+            cancel_event=cancel_event,
+            timeout_seconds=max(120, int(duration)),
+        )
+    except JobCancelledError:
+        raise
+    except Exception as exc:
+        logger.warning("speech coverage check failed", extra={"error": str(exc)})
+        return None
+    if result.returncode != 0:
+        logger.warning(
+            "speech coverage check failed",
+            extra={"stderr": result.stderr[-500:]},
+        )
+        return None
+    return _parse_speech_regions(result.stderr, duration)
+
+
+def _coverage(words: list[Word], start: float, end: float) -> tuple[float, float]:
+    """Return covered seconds and the largest uncovered gap in a region."""
+
+    length = max(0.0, end - start)
+    if length <= 0:
+        return 0.0, 0.0
+    intervals = sorted(
+        (max(start, word.start), min(end, word.end))
+        for word in words
+        if word.end > start and word.start < end
+    )
+    covered = 0.0
+    cursor = start
+    max_gap = 0.0
+    for interval_start, interval_end in intervals:
+        if interval_end <= cursor:
+            continue
+        if interval_start > cursor:
+            max_gap = max(max_gap, interval_start - cursor)
+        covered += interval_end - max(interval_start, cursor)
+        cursor = interval_end
+    max_gap = max(max_gap, end - cursor)
+    return covered, max_gap
+
+
+def _largest_uncovered_gap(
+    words: list[Word], start: float, end: float
+) -> tuple[float, float] | None:
+    """Return the longest stretch of speech in a region that has no words."""
+
+    intervals = sorted(
+        (max(start, word.start), min(end, word.end))
+        for word in words
+        if word.end > start and word.start < end
+    )
+    best: tuple[float, float] | None = None
+    cursor = start
+    for interval_start, interval_end in intervals:
+        if interval_start > cursor and (
+            best is None or interval_start - cursor > best[1] - best[0]
+        ):
+            best = (cursor, interval_start)
+        cursor = max(cursor, interval_end)
+    if end > cursor and (best is None or end - cursor > best[1] - best[0]):
+        best = (cursor, end)
+    return best
+
+
+def _region_needs_repair(words: list[Word], start: float, end: float) -> bool:
+    length = end - start
+    if length < 0.6:
+        return False
+    covered, max_gap = _coverage(words, start, end)
+    # 0.35s pauses were already removed from these regions, so a 1.5s hole is
+    # a dropped phrase rather than natural breathing room.
+    return max_gap > 1.5 or covered / length < 0.45
+
+
 async def _transcribe_accurate_chunks(
     audio_path: Path,
     duration: float,
@@ -864,6 +997,7 @@ async def _transcribe_accurate_chunks(
     device: str,
     compute_type: str,
     kwargs: dict[str, Any],
+    repair: bool = True,
 ) -> Transcript:
     """Transcribe a long file in short overlapping windows.
 
@@ -956,8 +1090,13 @@ async def _transcribe_accurate_chunks(
             finally:
                 await _close_engine(engine)
             info = engine.info
+            chunk_language = getattr(info, "language", None)
+            if chunk_language in _NEPALI_LIKE_LANGUAGES:
+                chunk_language = "ne"
+            elif chunk_language != "en":
+                chunk_language = None
             if detected_language is None:
-                detected_language = getattr(info, "language", None)
+                detected_language = chunk_language
                 language_probability = getattr(info, "language_probability", None)
             # Keep only the middle of each window. The overlapping edges are
             # transcribed twice; the next/previous window has the cleaner
@@ -995,6 +1134,21 @@ async def _transcribe_accurate_chunks(
             with contextlib.suppress(OSError):
                 clip_path.unlink(missing_ok=True)
 
+    if repair:
+        words, repair_warnings = await _repair_accurate_gaps(
+            words,
+            audio_path,
+            duration,
+            settings,
+            cancel_event=cancel_event,
+            on_progress=on_progress,
+            model_size=model_size,
+            device=device,
+            compute_type=compute_type,
+            kwargs=kwargs,
+            work_dir=work_dir,
+        )
+        warnings.extend(repair_warnings)
     words.sort(key=lambda word: (word.start, word.end))
     words = _dedupe_words(words, duration)
     sentences = build_sentences(words)
@@ -1020,6 +1174,172 @@ async def _transcribe_accurate_chunks(
     )
 
 
+async def _repair_accurate_gaps(
+    words: list[Word],
+    audio_path: Path,
+    duration: float,
+    settings: Settings,
+    *,
+    cancel_event: Event,
+    on_progress: ProgressCallback | None,
+    model_size: str,
+    device: str,
+    compute_type: str,
+    kwargs: dict[str, Any],
+    work_dir: Path,
+) -> tuple[list[Word], list[str]]:
+    """Re-transcribe speech the fine-tune's first pass left uncaptioned.
+
+    Word timestamps give an exact map of what was captioned. A region flagged
+    by ``silencedetect`` as speech but containing a long wordless hole is
+    clipped out and decoded again in isolation. This is what keeps a clause
+    from silently disappearing between overlapping windows.
+    """
+
+    warnings: list[str] = []
+    if duration <= 0.5:
+        return words, warnings
+    if on_progress:
+        on_progress(0.97, "Checking every spoken section was captioned")
+    regions = await _speech_regions(audio_path, duration, settings, cancel_event=cancel_event)
+    if regions is None:
+        warnings.append(
+            "The audio could not be checked for missed speech; some quiet words "
+            "may be missing."
+        )
+        return words, warnings
+    if not regions:
+        return words, warnings
+
+    repaired = list(words)
+    tools = get_media_tools(settings)
+    attempted: set[tuple[float, float]] = set()
+    budget = _REPAIR_BUDGET_SECONDS
+    attempts = 0
+    for round_index in range(_REPAIR_MAX_ROUNDS):
+        pending: list[tuple[float, float, float, float]] = []
+        for region_start, region_end in regions:
+            if not _region_needs_repair(repaired, region_start, region_end):
+                continue
+            gap = _largest_uncovered_gap(repaired, region_start, region_end)
+            if gap is None:
+                continue
+            gap_start, gap_end = gap
+            # Vary the context on each round: a repeated identical clip can
+            # produce the same empty decode that caused the hole.
+            padding = 0.6 + 0.5 * round_index
+            clip_start = max(region_start, gap_start - padding)
+            clip_end = min(region_end, gap_end + padding, clip_start + _REPAIR_MAX_CLIP_SECONDS)
+            if clip_end - clip_start < 0.8:
+                continue
+            key = (round(clip_start, 1), round(clip_end, 1))
+            if key in attempted:
+                continue
+            pending.append((clip_start, clip_end, gap_start, gap_end))
+        if not pending:
+            break
+        for index, (clip_start, clip_end, gap_start, gap_end) in enumerate(pending):
+            if cancel_event.is_set():
+                raise JobCancelledError()
+            if attempts >= _REPAIR_MAX_ATTEMPTS or budget <= 0:
+                break
+            clip_seconds = clip_end - clip_start
+            attempts += 1
+            budget -= clip_seconds
+            attempted.add((round(clip_start, 1), round(clip_end, 1)))
+            if on_progress:
+                on_progress(
+                    0.97,
+                    f"Re-transcribing missed speech near {int(clip_start)}s",
+                )
+            clip_path = work_dir / f"repair_{round_index}_{index}.wav"
+            command = [
+                tools.ffmpeg,
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                f"{clip_start:.3f}",
+                "-t",
+                f"{clip_seconds:.3f}",
+                "-i",
+                str(audio_path),
+                "-c",
+                "copy",
+                str(clip_path),
+            ]
+            try:
+                result = await run_process(
+                    command,
+                    cancel_event=cancel_event,
+                    timeout_seconds=120,
+                )
+                if result.returncode != 0 or not clip_path.exists():
+                    logger.warning(
+                        "could not prepare audio for coverage repair",
+                        extra={"stderr": result.stderr[-500:]},
+                    )
+                    continue
+                sub = await _transcribe_accurate_chunks(
+                    clip_path,
+                    clip_seconds,
+                    settings,
+                    cancel_event=cancel_event,
+                    on_progress=None,
+                    model_size=model_size,
+                    device=device,
+                    compute_type=compute_type,
+                    kwargs=kwargs,
+                    repair=False,
+                )
+            except JobCancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("coverage repair failed", extra={"error": str(exc)})
+                continue
+            finally:
+                with contextlib.suppress(OSError):
+                    clip_path.unlink(missing_ok=True)
+            known = {(word.text, round(word.start, 1)) for word in repaired}
+            for word in sub.words:
+                word_start = max(0.0, min(duration, clip_start + word.start))
+                word_end = max(word_start, min(duration, clip_start + word.end))
+                if word_end - word_start < 0.01:
+                    continue
+                midpoint = (word_start + word_end) / 2
+                # Ignore the context words on either side of the hole: they
+                # were already captured by the first pass.
+                if midpoint < gap_start - 0.35 or midpoint > gap_end + 0.35:
+                    continue
+                if (word.text, round(word_start, 1)) in known:
+                    continue
+                repaired.append(
+                    Word(
+                        start=round(word_start, 3),
+                        end=round(word_end, 3),
+                        text=word.text,
+                        probability=word.probability,
+                    )
+                )
+            repaired.sort(key=lambda word: (word.start, word.end))
+            repaired = _dedupe_words(repaired, duration)
+        if attempts >= _REPAIR_MAX_ATTEMPTS or budget <= 0:
+            break
+
+    still_missing = [
+        (start, end) for start, end in regions if _region_needs_repair(repaired, start, end)
+    ]
+    if still_missing:
+        warnings.append(
+            "A spoken section near "
+            f"{int(still_missing[0][0])} seconds could not be captioned after a second pass; "
+            "check that part of the audio."
+        )
+    return repaired, warnings
+
+
 async def transcribe_audio(
     audio_path: Path,
     duration: float,
@@ -1040,6 +1360,8 @@ async def transcribe_audio(
     explicit_language = language not in {None, "", "auto"}
     forced_language = settings.whisper_language
     selected_language = language if explicit_language else forced_language
+    if selected_language == "hi":
+        selected_language = "ne"
     if not explicit_language and not forced_language:
         if on_progress:
             on_progress(0.03, "Detecting spoken language")
@@ -1189,13 +1511,14 @@ async def transcribe_audio(
 
     info = engine.info
     language = getattr(info, "language", None)
+    if language in _NEPALI_LIKE_LANGUAGES:
+        language = "ne"
+    elif language != "en":
+        language = None
     language_probability = getattr(info, "language_probability", None)
     words = _build_words(segments, duration)
     sentences = build_sentences(words)
     warnings: list[str] = []
-    language_warning = _nepali_language_warning(words, selected_language)
-    if language_warning:
-        warnings.append(language_warning)
     logger.info(
         "transcription complete",
         extra={
@@ -1270,6 +1593,8 @@ async def transcribe_windows(
     explicit_language = language not in {None, "", "auto"}
     forced_language = settings.whisper_language
     selected_language = language if explicit_language else forced_language
+    if selected_language == "hi":
+        selected_language = "ne"
     if not explicit_language and not forced_language:
         if on_progress:
             on_progress(0.02, "Detecting spoken language")
@@ -1479,8 +1804,13 @@ async def transcribe_windows(
             finally:
                 await _close_engine(engine)
             info = engine.info
+            window_language = getattr(info, "language", None)
+            if window_language in _NEPALI_LIKE_LANGUAGES:
+                window_language = "ne"
+            elif window_language != "en":
+                window_language = None
             if detected_language is None:
-                detected_language = getattr(info, "language", None)
+                detected_language = window_language
                 language_probability = getattr(info, "language_probability", None)
             for word in _build_words(segments, window_seconds):
                 words.append(
@@ -1515,9 +1845,6 @@ async def transcribe_windows(
     sentences = build_sentences(words)
     if not words:
         warnings.append("No speech was detected in the selected highlight windows.")
-    language_warning = _nepali_language_warning(words, selected_language)
-    if language_warning:
-        warnings.append(language_warning)
     if on_progress:
         on_progress(1.0, "Speech transcribed")
     logger.info(

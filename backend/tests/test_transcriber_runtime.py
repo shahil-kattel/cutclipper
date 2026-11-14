@@ -55,7 +55,7 @@ def test_maximum_quality_uses_the_accurate_nepali_model() -> None:
     assert transcriber._model_for("ne", "maximum", settings) == model
     assert transcriber._beam_for("maximum", settings) == 5
     assert transcriber._beam_for("maximum", settings, "ne") == 10
-    assert transcriber._beam_for_model("best", settings, "ne", model) == 1
+    assert transcriber._beam_for_model("best", settings, "ne", model) == 5
     assert transcriber._beam_for_model("maximum", settings, "ne", model) == 5
 
 
@@ -197,35 +197,12 @@ def test_english_words_become_latin_while_nepali_stays_devanagari() -> None:
     assert transcriber._normalize_word("क्याप्सिटी") == "capacity"
     assert transcriber._normalize_word(" प्रोफेसनल") == "professional"
     assert transcriber._normalize_word("राममा") == "राममा"
-
-
-def test_hindi_looking_nepali_transcript_is_flagged() -> None:
-    assert not transcriber._looks_like_hindi("यो नेपाली हो। हामी ठीक छौं।")
-    assert transcriber._looks_like_hindi("यह कितना अच्छा है। वह बहुत अच्छा हुआ।")
-    nepali = [transcriber.Word(0.0, 1.0, "यो"), transcriber.Word(1.0, 2.0, "नेपाली")]
-    assert transcriber._nepali_language_warning(nepali, "ne") is None
-    hindi = [
-        transcriber.Word(0.0, 0.5, "यह"),
-        transcriber.Word(0.5, 1.0, "कितना"),
-        transcriber.Word(1.0, 1.5, "है"),
-        transcriber.Word(1.5, 2.0, "वह"),
-        transcriber.Word(2.0, 2.5, "बहुत"),
-        transcriber.Word(2.5, 3.0, "हुआ"),
-    ]
-    assert "Hindi verb forms" in (transcriber._nepali_language_warning(hindi, "ne") or "")
-
-
-def test_shared_nepali_hindi_forms_do_not_trigger_a_hindi_warning() -> None:
-    nepali = [
-        transcriber.Word(0.0, 0.5, "उनीहरू"),
-        transcriber.Word(0.5, 1.0, "घर"),
-        transcriber.Word(1.0, 1.5, "गए।"),
-        transcriber.Word(1.5, 2.0, "त्यहाँ"),
-        transcriber.Word(2.0, 2.5, "रहे।"),
-        transcriber.Word(2.5, 3.0, "लेकिन"),
-        transcriber.Word(3.0, 3.5, "फर्किए।"),
-    ]
-    assert transcriber._nepali_language_warning(nepali, "ne") is None
+    assert transcriber._normalize_word("फाइनली") == "finally"
+    assert transcriber._normalize_word("बेनिफेड") == "benefit"
+    assert transcriber._normalize_word("युएसमा") == "USAमा"
+    assert transcriber._normalize_word("फोन्समा") == "phonesमा"
+    assert transcriber._normalize_word("आइओएसबाहेक") == "iOSबाहेक"
+    assert transcriber._join_words(["chat", "GPTको", "र", "Open", "AIले"]) == "ChatGPTको र OpenAIले"
 
 
 def test_translate_disables_the_nepali_prompt() -> None:
@@ -350,3 +327,47 @@ def test_midstream_batched_failure_resumes_sequentially(
     assert [word.text for word in transcript.words] == ["hello", "world", "again", "now"]
     assert calls and calls[0]["clip_timestamps"] == [0.95, 3.0]
     transcriber._FAILED_BATCHED_ENGINES.clear()
+
+
+def test_speech_regions_are_split_around_silence() -> None:
+    stderr = "\n".join(
+        [
+            "[silencedetect @ 0x1] silence_start: 1.0",
+            "[silencedetect @ 0x1] silence_end: 2.5 | silence_duration: 1.5",
+            "[silencedetect @ 0x1] silence_start: 4.0",
+            "[silencedetect @ 0x1] silence_end: 5.0 | silence_duration: 1.0",
+        ]
+    )
+    assert transcriber._parse_speech_regions(stderr, 6.0) == [
+        (0.0, 1.0),
+        (2.5, 4.0),
+        (5.0, 6.0),
+    ]
+
+
+def test_speech_regions_handle_unclosed_silence_and_no_silence() -> None:
+    assert transcriber._parse_speech_regions("silence_start: 2.0", 5.0) == [(0.0, 2.0)]
+    assert transcriber._parse_speech_regions("", 7.0) == [(0.0, 7.0)]
+    assert (
+        transcriber._parse_speech_regions(
+            "silence_start: 0.0\nsilence_end: 5.0 | silence_duration: 5.0",
+            5.0,
+        )
+        == []
+    )
+
+
+def test_coverage_repair_detects_a_skipped_phrase() -> None:
+    words = [
+        transcriber.Word(start=0.0, end=1.0, text="नमस्ते", probability=1.0),
+        transcriber.Word(start=6.0, end=7.0, text="संसार", probability=1.0),
+    ]
+    covered, gap = transcriber._coverage(words, 0.0, 7.0)
+    assert covered == pytest.approx(2.0)
+    assert gap == pytest.approx(5.0)
+    assert transcriber._largest_uncovered_gap(words, 0.0, 7.0) == pytest.approx((1.0, 6.0))
+    assert transcriber._region_needs_repair(words, 0.0, 7.0)
+
+    full = [transcriber.Word(start=0.0, end=7.0, text="नमस्ते संसार", probability=1.0)]
+    assert not transcriber._region_needs_repair(full, 0.0, 7.0)
+    assert transcriber._largest_uncovered_gap(full, 0.0, 7.0) is None
