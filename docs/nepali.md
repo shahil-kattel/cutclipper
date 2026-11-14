@@ -563,8 +563,10 @@ spelling:
 - `YouTubeमा` → `YouTube ma` (Latin stem + separated Roman Nepali suffix)
 - `कम्पनीहरूले` → `company harule`
 - `सीईओ` → `CEO`, `यूएसए` → `USA`, `डलर` → `dollar`, `प्रतिशत` → `percent`
-- `GPT ४` → `GPT 4`, `२२ प्रतिशत` → `22 percent` (Devanagari digits
-  next to English labels become ASCII)
+- `GPT ४` → `GPT 4`, `२२ प्रतिशत` → `22 percent`, `३१ गते` → `31 गते`
+  (caption numerals are always ASCII, including Nepali sentences)
+- Mobile brands and tech loans in the glossary stay Latin: `सामसुङ` → `Samsung`,
+  `डिस्प्ले` → `display`, `चिपसेट` → `chipset`, `प्याकेजिङ` → `packaging`
 - `This is English.` → unchanged
 
 If a mixed token has an English word that is not in the glossary, the fallback

@@ -255,6 +255,8 @@ def test_english_acronyms_and_currency_are_latin() -> None:
 def test_english_version_numbers_use_ascii_digits() -> None:
     assert transcriber._normalize_word("GPT४") == "GPT4"
     assert transcriber._normalize_word("v१.५") == "v1.5"
+    assert transcriber._normalize_word("३१") == "31"
+    assert transcriber._normalize_word("१८") == "18"
     text, words = _build_caption_line(("GPT", "४", "model"))
     assert text == "GPT 4 model"
     assert [word.text for word in words] == ["GPT", "4", "model"]
@@ -347,6 +349,18 @@ def test_second_real_transcript_errors_are_normalised(
         (("onlineमा", "दराज", "र", "स्टोरसहित"), "onlineमा Daraz र storeसहित"),
         (("२३९९", "रूपैयाँ"), "2399 रूपैयाँ"),
         (("१०००", "छुटसहित"), "1000 छुटसहित"),
+        (("३१", "अर्थात्सहित", "१८", "गतेसम्म"), "31 अर्थात्सहित 18 गतेसम्म"),
+        (("onlineमा", "दराज", "र", "हुकुट", "स्टोरसहित"), "onlineमा Daraz र Hukut storeसहित"),
+        (("सामसुङ", "र", "रियलमी"), "Samsung र Realme"),
+        (("चिपसेट", "र्याम", "स्टोरेज"), "chipset RAM storage"),
+        (
+            ("सो", "वि", "हाफ", "to", "बिफेर", "to", "association"),
+            "so we have to be fair to association",
+        ),
+        (
+            ("plus", "यहाँ", "६१६२९५६", "चिविको", "memory"),
+            "plus यहाँ 16 plus 256GB memory",
+        ),
     ],
 )
 def test_third_real_transcript_english_words_are_latin(
@@ -355,3 +369,30 @@ def test_third_real_transcript_english_words_are_latin(
 ) -> None:
     text, _ = _build_caption_line(tokens)
     assert text == caption
+
+
+def test_merged_storage_run_is_repaired_before_caption_grouping() -> None:
+    words = [
+        transcriber.Word(index * 0.25, (index + 1) * 0.25, text)
+        for index, text in enumerate(("plus", "यहाँ", "६१६२९५६", "चिविको", "memory"))
+    ]
+    normalized = transcriber.normalize_cached_words(words, 1.25)
+    assert [word.text for word in normalized] == ["plus", "यहाँ", "16 plus 256GB", "memory"]
+
+
+def test_english_sentence_run_is_repaired_before_caption_grouping() -> None:
+    words = [
+        transcriber.Word(index * 0.25, (index + 1) * 0.25, text)
+        for index, text in enumerate(("सो", "वि", "हाफ", "to", "बिफेर", "to", "association", "यो"))
+    ]
+    normalized = transcriber.normalize_cached_words(words, 2.0)
+    assert [word.text for word in normalized] == [
+        "so",
+        "we",
+        "have",
+        "to",
+        "be fair",
+        "to",
+        "association",
+        "यो",
+    ]

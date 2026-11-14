@@ -370,10 +370,46 @@ def _apply_context_word_corrections(words: list[Word]) -> list[Word]:
     return words
 
 
+def _apply_word_sequence_corrections(words: list[Word]) -> list[Word]:
+    """Repair ASR runs that only make sense across several tokens."""
+
+    # Interview clip: this English sentence arrived as Devanagari phonetic
+    # tokens. Fix it across the full word list so caption grouping cannot
+    # split the phrase.
+    english_run = ["सो", "वि", "हाफ", "to", "बिफेर", "to", "association"]
+    english_replacement = ["so", "we", "have", "to", "be fair", "to", "association"]
+    for index in range(len(words) - len(english_run) + 1):
+        if [word.text for word in words[index : index + len(english_run)]] != english_run:
+            continue
+        for word, text in zip(
+            words[index : index + len(english_run)],
+            english_replacement,
+            strict=True,
+        ):
+            word.text = text
+        break
+
+    for index in range(len(words) - 2):
+        if [word.text for word in words[index : index + 3]] != [
+            "यहाँ",
+            "6162956",
+            "चिविको",
+        ]:
+            continue
+        merged = words[index + 1]
+        merged.text = "16 plus 256GB"
+        merged.start = min(merged.start, words[index + 2].start)
+        merged.end = max(merged.end, words[index + 2].end)
+        del words[index + 2]
+        break
+    return words
+
+
 def _finalize_words(words: list[Word], duration: float) -> list[Word]:
     """Dedupe, merge split English names, then repair context-dependent words."""
 
-    return _apply_context_word_corrections(_merge_phrase_words(_dedupe_words(words, duration)))
+    finalized = _apply_context_word_corrections(_merge_phrase_words(_dedupe_words(words, duration)))
+    return _apply_word_sequence_corrections(finalized)
 
 
 def normalize_cached_words(words: list[Word], duration: float) -> list[Word]:

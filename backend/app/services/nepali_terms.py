@@ -171,6 +171,20 @@ _PHRASE_REPLACEMENTS = (
     (re.compile(r"(?<!\S)थर\s+layer(?!\S)"), "third layer"),
     (re.compile(r"(?<!\S)volume\s+एन\s+stereo\s+साउन(?!\S)"), "volume and stereo sound"),
     (re.compile(r"(?<!\S)फूल\s+view(?!\S)"), "full view"),
+    # Interview clip: an English sentence split into Nepali phonetic tokens.
+    (
+        re.compile(
+            r"(?<!\S)सो\s+वि\s+हाफ\s+to\s+बिफेर\s+to\s+association(?!\S)",
+            re.IGNORECASE,
+        ),
+        "so we have to be fair to association",
+    ),
+    # Honor review: "16 plus 256GB memory" was merged into one digit token
+    # and "GB को" became "चिविको".
+    (
+        re.compile(r"(?<!\S)यहाँ\s+6162956\s+चिविको\s+memory(?!\S)"),
+        "यहाँ 16 plus 256GB memory",
+    ),
 )
 
 _CHATGPT_SPLIT_RE = re.compile(
@@ -210,6 +224,7 @@ CONTEXT_WORD_CORRECTIONS: tuple[tuple[tuple[str, ...], str, str], ...] = (
     # The decoder drops the integer in "ChatGPT 3.5"; the decimal token keeps
     # its leading dot, so match the whole token rather than a bare digit.
     (("ChatGPT",), ".५", "3.5"),
+    (("ChatGPT",), ".5", "3.5"),
 )
 
 _WORD_EDGE_PUNCTUATION = "।॥.,;:!?…\"'“”‘’()[]{}<>«»‹›/\\-–—"
@@ -524,7 +539,9 @@ def correct_nepali_word(text: str) -> str:
     english = english_term_for(corrected)
     if english:
         return text.replace(stripped, english, 1)
-    if any(char in _DEVANAGARI_DIGIT_CHARS for char in corrected) and _has_ascii_letter(corrected):
+    # Captions use English numerals everywhere, including Nepali sentences:
+    # prices, dates, model numbers, and IMEIs should read in ASCII.
+    if any(char in _DEVANAGARI_DIGIT_CHARS for char in corrected):
         return text.replace(stripped, _as_ascii_digits(corrected), 1)
     if corrected != stripped:
         return text.replace(stripped, corrected, 1)
