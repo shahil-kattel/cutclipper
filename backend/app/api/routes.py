@@ -18,6 +18,7 @@ from app.core.validation import validate_remote_url
 from app.pipeline.captions import build_caption_segments
 from app.pipeline.jobs import JobManager
 from app.pipeline.renderer import safe_title_slug
+from app.pipeline.types import Word
 from app.schemas import (
     CAPTION_FONTS,
     ApiConfig,
@@ -41,7 +42,7 @@ from app.services.audio import extract_audio
 from app.services.downloader import fetch_metadata
 from app.services.media import get_media_tools
 from app.services.romanize import romanize_segments
-from app.services.transcriber import transcribe_audio
+from app.services.transcriber import normalize_cached_words, transcribe_audio
 from app.services.translator import translate_caption_segments
 
 logger = logging.getLogger(__name__)
@@ -164,6 +165,28 @@ async def upload_video_stream(upload_id: str, request: Request) -> FileResponse:
     )
 
 
+def _refresh_cached_transcript(cached: TranscriptResponse) -> TranscriptResponse:
+    """Re-apply the current word normalisation to an older cached transcript.
+
+    Cache files persist across releases, so a transcript written before a
+    spelling or code-switch fix would otherwise keep serving the old text even
+    though the renderer and editor now expect corrected words.
+    """
+
+    if not cached.words:
+        return cached
+    duration = cached.duration or max((item.end for item in cached.words), default=0.0)
+    words = normalize_cached_words(
+        [Word(start=item.start, end=item.end, text=item.text) for item in cached.words],
+        duration,
+    )
+    cached.words = [
+        TranscriptWordOut(start=word.start, end=word.end, text=word.text) for word in words
+    ]
+    cached.segments = build_caption_segments(words)
+    return cached
+
+
 @router.post("/captions/transcribe", response_model=TranscriptResponse)
 async def transcribe_captions(payload: TranscribeRequest, request: Request) -> TranscriptResponse:
     manager = _manager(request)
@@ -180,6 +203,7 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
     if cache_path.exists() and not payload.force:
         try:
             cached = TranscriptResponse.model_validate_json(cache_path.read_text("utf-8"))
+            cached = _refresh_cached_transcript(cached)
             cached.cached = True
             return cached
         except (OSError, ValueError):

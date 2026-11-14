@@ -18,14 +18,21 @@ from pathlib import Path
 
 from app.pipeline.types import Word
 from app.schemas import CaptionSegment
-from app.services.nepali_terms import correct_nepali_word, english_term_for
+from app.services.nepali_terms import (
+    correct_nepali_phrases,
+    correct_nepali_word,
+    correct_words_in_context,
+    english_term_for,
+)
 
 _DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
 # Word runs exclude danda and Devanagari digits so punctuation and numbers are
 # handled separately; ZWNJ/ZWJ are also left out so they cannot leak into Latin.
 _DEVANAGARI_WORD_RE = re.compile(r"[ऀ-ॣ॰-ॿ]+")
 # A danda can arrive as its own token; keep the Latin full stop attached.
-_ROMAN_PUNCT_SPACE_RE = re.compile(r"\s+([,.;:!?%)\]])")
+# Pull punctuation onto the preceding word, but keep the space before a
+# leading decimal such as "GPT .5" (the token starts with the dot).
+_ROMAN_PUNCT_SPACE_RE = re.compile(r"\s+([,;:!?%)\]।॥])|\s+(\.)(?!\d)")
 _LEXICON_PATH = Path(__file__).resolve().parents[2] / "assets" / "nepali-roman-lexicon.json"
 
 _VIRAMA = "्"
@@ -132,7 +139,12 @@ _DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 # lookup lets ``नमस्ते,`` resolve to ``Namaste`` + comma.
 _EDGE_PUNCTUATION = "।॥.,;:!?…\"'“”‘’()[]{}<>«»‹›「」『』【】（）［］｛｝/\\-–—_+=*&%$#@^~`|"
 _OPENING_QUOTES = frozenset({"“", '"', "'", "‘"})
-_SENTENCE_END = frozenset({".", "?", "!", "।", "॥"})
+# A danda always ends a sentence, even when the next word has no space after
+# it (``नमस्ते।धन्यवाद``). Keep a private sentinel until casing has run so an
+# ordinary full stop inside a domain or decimal is not treated the same way.
+_DANDA_SENTINEL = ""
+_SENTENCE_END = frozenset({".", "?", "!", "।", "॥", _DANDA_SENTINEL})
+_DANDA_LIKE = frozenset({"।", "॥", _DANDA_SENTINEL})
 _CLAUSE_BREAK = frozenset({",", ";", ":", "(", "[", "{", "—", "–"})
 
 
@@ -180,7 +192,11 @@ def _split_edge_punctuation(token: str) -> tuple[str, str, str]:
 
 
 def _normalise_punctuation(text: str) -> str:
-    return text.replace("।", ".").replace("॥", ".")
+    return text.replace("।", _DANDA_SENTINEL).replace("॥", _DANDA_SENTINEL)
+
+
+def _restore_punctuation(text: str) -> str:
+    return text.replace(_DANDA_SENTINEL, ".")
 
 
 def _lookup_roman(text: str, *, allow_english: bool = True, depth: int = 0) -> str | None:
@@ -242,7 +258,11 @@ def _romanize_non_word(text: str) -> str:
     """Keep Latin text, turn dandas into stops, and map Devanagari digits."""
 
     return (
-        text.translate(_DIGITS).replace("।", ".").replace("॥", ".").replace("‌", "").replace("‍", "")
+        text.translate(_DIGITS)
+        .replace("।", _DANDA_SENTINEL)
+        .replace("॥", _DANDA_SENTINEL)
+        .replace("‌", "")
+        .replace("‍", "")
     )
 
 
@@ -263,6 +283,35 @@ def _next_is_labial(text: str, index: int) -> bool:
     while index < len(text) and text[index] in _ZERO_WIDTH:
         index += 1
     return index < len(text) and text[index] in _LABIAL_CONSONANTS
+
+
+def _keeps_final_schwa(
+    text: str,
+    last_consonant: str,
+    *,
+    after_virama: bool,
+    consonant_count: int,
+) -> bool:
+    """Decide whether a word-final inherent अ belongs in the Roman spelling.
+
+    ``गरेर`` and ``बोलेर`` need the final ``a`` (garera, bolera), while the
+    shorter imperative ``हेर`` (her) and ``फेर`` (pher) do not. Dependent
+    gerunds all end in र after े/ै/ए, so that shape is the useful signal.
+    """
+
+    if after_virama or last_consonant == "छ" or consonant_count <= 1:
+        return True
+    if last_consonant != "र":
+        return False
+    index = len(text) - 1
+    while index >= 0 and (text[index] in _ZERO_WIDTH or text[index] == _NUKTA):
+        index -= 1
+    if index <= 0:
+        return False
+    previous = text[index - 1]
+    if previous in "ेै" and len(text) >= 4:
+        return True
+    return previous in "एऐ" and len(text) >= 3
 
 
 def _transliterate(text: str) -> str:
@@ -370,7 +419,7 @@ def _transliterate(text: str) -> str:
             continue
 
         if char in "।॥":
-            append(".")
+            append(_DANDA_SENTINEL)
             virama_since_consonant = False
             index += 1
             continue
@@ -396,12 +445,18 @@ def _transliterate(text: str) -> str:
         virama_since_consonant = False
         index += 1
 
-    if pending_inherent_a and output and output[-1] == "a":
-        final_consonant_keeps_schwa = (
-            last_consonant_after_virama or last_consonant == "छ" or consonant_count <= 1
+    if (
+        pending_inherent_a
+        and output
+        and output[-1] == "a"
+        and not _keeps_final_schwa(
+            text,
+            last_consonant,
+            after_virama=last_consonant_after_virama,
+            consonant_count=consonant_count,
         )
-        if not final_consonant_keeps_schwa:
-            output.pop()
+    ):
+        output.pop()
 
     roman = "".join(output)
     return roman or text
@@ -416,8 +471,8 @@ def _romanize_core(core: str) -> str:
     return _romanize_mixed_script(core)
 
 
-def romanize_token(token: str) -> str:
-    """Romanize one whitespace-delimited caption token, keeping punctuation."""
+def _romanize_token_raw(token: str) -> str:
+    """Romanize one token while keeping dandas as an internal sentinel."""
 
     if not token or not _has_devanagari(token):
         return token
@@ -427,6 +482,12 @@ def romanize_token(token: str) -> str:
     if not core:
         return _normalise_punctuation(token)
     return leading + _romanize_core(core) + trailing
+
+
+def romanize_token(token: str) -> str:
+    """Romanize one whitespace-delimited caption token, keeping punctuation."""
+
+    return _restore_punctuation(_romanize_token_raw(token))
 
 
 def _apply_case_to_sequence(tokens: list[str]) -> list[str]:
@@ -443,17 +504,27 @@ def _apply_case_to_sequence(tokens: list[str]) -> list[str]:
     for token in tokens:
         preserve_case = any(char.isupper() for char in token)
         chars: list[str] = []
-        for char in token:
-            if char.isalpha():
-                if capitalise_next:
-                    if not preserve_case:
-                        char = char.upper()
-                    capitalise_next = False
+        for index, char in enumerate(token):
+            if char.isalpha() and capitalise_next:
+                if not preserve_case:
+                    char = char.upper()
+                capitalise_next = False
+                preserve_case = False
+            elif char.isalpha():
                 # The first letter has been seen; later sentence starts inside
                 # the same token can be capitalised normally.
                 preserve_case = False
             chars.append(char)
-            if char in _SENTENCE_END or (
+            # A full stop only ends a sentence when no letter or digit follows
+            # it in the same token. Otherwise ".५" would reset the sentence and
+            # capitalise the next word ("GPT .5 Model").
+            if char in _DANDA_LIKE:
+                ends_sentence = True
+            else:
+                ends_sentence = char in _SENTENCE_END and not any(
+                    later.isalnum() for later in token[index + 1 :]
+                )
+            if ends_sentence or (
                 char in _OPENING_QUOTES
                 and (previous == "" or previous in _CLAUSE_BREAK or previous in _SENTENCE_END)
             ):
@@ -467,10 +538,14 @@ def _apply_case_to_sequence(tokens: list[str]) -> list[str]:
 def romanize_nepali_text(text: str) -> str:
     """Romanize a caption line, preserving English words and Latin punctuation."""
 
-    if not text or not _has_devanagari(text):
+    if not text:
         return text
-    tokens = [romanize_token(token) for token in text.split()]
-    return _ROMAN_PUNCT_SPACE_RE.sub(r"\1", " ".join(_apply_case_to_sequence(tokens)))
+    text = correct_nepali_phrases(text)
+    if not _has_devanagari(text):
+        return text
+    tokens = [_romanize_token_raw(token) for token in text.split()]
+    cased = _apply_case_to_sequence(tokens)
+    return _restore_punctuation(_ROMAN_PUNCT_SPACE_RE.sub(r"\1\2", " ".join(cased)))
 
 
 def _romanize_texts_with_shared_case(texts: list[str]) -> list[str]:
@@ -484,14 +559,18 @@ def _romanize_texts_with_shared_case(texts: list[str]) -> list[str]:
     tokenized: list[str] = []
     counts: list[int] = []
     for text in texts:
-        tokens = text.split()
+        tokens = correct_nepali_phrases(text).split()
         counts.append(len(tokens))
-        tokenized.extend(romanize_token(token) for token in tokens)
+        tokenized.extend(_romanize_token_raw(token) for token in tokens)
     cased = _apply_case_to_sequence(tokenized)
     result: list[str] = []
     cursor = 0
     for count in counts:
-        result.append(_ROMAN_PUNCT_SPACE_RE.sub(r"\1", " ".join(cased[cursor : cursor + count])))
+        result.append(
+            _restore_punctuation(
+                _ROMAN_PUNCT_SPACE_RE.sub(r"\1\2", " ".join(cased[cursor : cursor + count]))
+            )
+        )
         cursor += count
     return result
 
@@ -518,7 +597,13 @@ def romanize_segments(segments: list[CaptionSegment]) -> list[CaptionSegment]:
         for segment_index, segment in enumerate(segments)
         for word in (segment.words or [])
     ]
-    flat_texts = _apply_case_to_sequence([romanize_token(word.text) for _, word in flat_words])
+    flat_source = correct_words_in_context([word.text for _, word in flat_words])
+    flat_texts = [
+        _restore_punctuation(text)
+        for text in _apply_case_to_sequence(
+            [_romanize_token_raw(source) for source in flat_source]
+        )
+    ]
     words_by_segment: dict[int, list[str]] = {}
     for (segment_index, _), word_text in zip(flat_words, flat_texts, strict=True):
         words_by_segment.setdefault(segment_index, []).append(word_text)
@@ -544,7 +629,13 @@ def romanize_words(words: list[Word]) -> list[Word]:
 
     if not words or not any(_has_devanagari(word.text) for word in words):
         return list(words)
-    texts = _apply_case_to_sequence([romanize_token(word.text) for word in words])
+    source_texts = correct_words_in_context([word.text for word in words])
+    texts = [
+        _restore_punctuation(text)
+        for text in _apply_case_to_sequence(
+            [_romanize_token_raw(source) for source in source_texts]
+        )
+    ]
     return [
         Word(start=word.start, end=word.end, text=text, probability=word.probability)
         for word, text in zip(words, texts, strict=True)

@@ -408,6 +408,19 @@ current matcher does a direct lookup, then strips one case suffix from
   भिडियोको → videoको, कम्पनीहरू → companyहरू.
 - Mixed-script tokens (Latin stem + Devanagari suffix) are intentional and
   readable in Nepali digital writing.
+- Split English names are merged back into one caption word. The fine-tune
+  writes `ChatGPT` variously as चार GPT, च्याट जिपिटी, chat GPT, and च्याडजिपीटी;
+  `OpenAI` appears as Open AI, ओपन AI, and Open AIले.
+  `merge_english_phrase` combines the adjacent words and keeps the first word's
+  start and the second word's end, so karaoke timing still matches the audio.
+  The shared phrase pass applies the same rule to edited text in the caption
+  editor.
+- Context-only fixes stay in `CONTEXT_WORD_CORRECTIONS` so valid words are not
+  rewritten everywhere: `अहिलेको लागि भनेछ` → `अहिलेको लागि भने`,
+  `गर्न मेल्यो` → `गर्न मिल्यो`, and `is finally heard` → `is finally here`.
+- Non-word transcript spellings are corrected globally: `साँढै` → चाँडै,
+  `सिद्धै` → सिधै, `छै` → छ, `चै`/`चे` → चाहिँ, `लाइचे` → लाई, and
+  `गरिहेरे` → गरें.
 
 ### Spelling variants now covered
 
@@ -448,8 +461,11 @@ Case-suffix coverage:
   be "kg" or "kilo"; भ्यु can be "view" or "views"; हेडफोन is usually
   "headphones". Pick a caption convention and document it.
 - **Multiword terms.** हार्ड डिस्क (two tokens), च्याट जीपीटी, वाई-फाई and
-  वाईफाई are not handled by a single-token lookup. Add phrase-level corrections
-  or a pre-token normalizer if these matter.
+  वाईफाई are not handled by a single-token lookup. Product names are covered by
+  `merge_english_phrase` (ChatGPT, OpenAI); add other two-word terms to that
+  table rather than inventing a suffix-only rule. A phrase correction may merge
+  tokens only when a second model or the audio confirms the intended name,
+  because merging changes the caption's word count.
 - **Suffix stripping is greedy.** A glossary word that legitimately ends in a
   suffix-like string must be a direct key (direct lookup runs first). Audit new
   entries for this.
@@ -526,8 +542,15 @@ the Roman Nepali Nepali speakers already type:
 Inherent **अ** is written as `a`, then deleted word-finally unless the final
 consonant follows a virama or is छ (`गर्न` → garna, `गर्छ` → garchha, `काम` →
 kaam, `राम` → raam). This is the rule that keeps `गर्न` and `काम` apart without
-a dictionary. Names and unusual words use this fallback; common words use the
-curated lexicon so their conventional spelling wins.
+a dictionary. Dependent gerunds keep the final `a`: `गरेर` → garera,
+`बोलेर` → bolera, `गएर` → gaera, `लिएर` → liyera. Short imperatives do not:
+`हेर` → her, `फेर` → pher. Names and unusual words use this fallback; common
+words use the curated lexicon so their conventional spelling wins.
+
+A full stop inside a token only starts a new sentence when no letter or digit
+follows it. This keeps `GPT .५` and `v१.५` from capitalising the next word,
+while a danda still ends a sentence even with no space after it
+(`नमस्ते।धन्यवाद` → `Namaste.Dhanyabaad`).
 
 ### English stays English
 
@@ -559,6 +582,12 @@ writes it phonetically in Roman letters. Add the spelling to
   renderer applies the same function server-side, so the preview, SRT, and
   burned captions agree.
 - `backend/tests/test_romanize.py` — phrase-level and rendering tests.
+- `backend/tests/test_nepali_codeswitch.py` — the real-transcript regression
+  corpus. It replays every line of the 57-second Nepali/English tech video
+  (`ChatGPT`, `OpenAI`, `iOS`, `Android`, `UI/UX`) through the normal
+  word-normalization and caption-grouping path, then checks both the
+  Devanagari/Latin caption and its Roman form. Add a case here whenever a real
+  mixed-language transcript exposes a new error.
 
 ### Adding a word or fixing a spelling
 
@@ -592,6 +621,11 @@ writes it phonetically in Roman letters. Add the spelling to
 - Devanagari → Latin glossary: `backend/assets/nepali-english-terms.json` and
   `english_term_for` in `backend/app/services/nepali_terms.py`. The transcriber
   applies it while normalising ASR words.
+- Transcript cache refresh: `_refresh_cached_transcript` in
+  `backend/app/api/routes.py` runs `normalize_cached_words` when a
+  `transcript_v4_*.json` cache is loaded. Cached ASR text therefore picks up
+  the current spelling, product-name merge, and context fixes without a slow
+  re-transcription.
 - Roman Nepali: `backend/app/services/romanize.py`, the curated
   `backend/assets/nepali-roman-lexicon.json`, and
   `POST /api/captions/romanize`. `build_ass` applies the same transliterator
@@ -611,13 +645,20 @@ writes it phonetically in Roman letters. Add the spelling to
 
 When adding a Nepali correction or glossary entry:
 
+0. Replay the real ASR output through
+   `backend/tests/test_nepali_codeswitch.py` first. If the line is not in the
+   corpus, add it with the expected Devanagari/Latin and Roman forms before
+   changing the code.
 1. Confirm the source spelling is a real ASR output, not a guess.
 2. Check for name collisions and context-dependent meanings.
 3. Add the common spelling variants.
 4. Check whether a case suffix can attach; add suffix variants if needed.
-5. Add a test in `backend/tests/test_transcriber_runtime.py`.
+5. Add a unit test in `backend/tests/test_transcriber_runtime.py` and replay
+   the line in `backend/tests/test_nepali_codeswitch.py`.
 6. Keep word timings and token boundaries intact; never rewrite a word into
-   multiple tokens unless the timing model can handle it.
+   multiple tokens. Merging two adjacent ASR tokens into one confirmed product
+   name is allowed through `merge_english_phrase`, using the first word's start
+   and the second word's end.
 7. Prefer hotwords for names and places; keep corrections for non-words.
 8. For Roman Nepali, add conventional spellings to
    `backend/assets/nepali-roman-lexicon.json` and a phrase test in

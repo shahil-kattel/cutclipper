@@ -9,11 +9,14 @@ Whisper service.
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Sequence
 from pathlib import Path
 
 # Conservative spelling fixes for tokens the Nepali ASR repeatedly mangles.
 # Only non-words and standard spellings are listed; real Nepali words and
-# names are never rewritten.
+# names are never rewritten. Context-dependent fixes live in
+# ``CONTEXT_WORD_CORRECTIONS`` below instead of this global map.
 NEPALI_WORD_CORRECTIONS = {
     "सटिग": "सटीक",
     "सटिक": "सटीक",
@@ -37,7 +40,151 @@ NEPALI_WORD_CORRECTIONS = {
     "अतिति": "अतिथि",
     "विशेष्ट": "विशिष्ट",
     "श्वागत": "स्वागत",
+    # Real transcript errors from Nepali→English code-switched speech. These
+    # spellings are not Nepali words, so they are safe to correct globally.
+    "साँढै": "चाँडै",
+    "सिद्धै": "सिधै",
+    "छै": "छ",
+    "चै": "चाहिँ",
+    "चे": "चाहिँ",
+    "लाइचे": "लाई",
+    # "गरिहेरे" is not a Nepali word; the speaker says "मैले … download गरें".
+    "गरिहेरे": "गरें",
 }
+
+# Two-word English terms are split by the ASR in several ways. A phrase
+# correction keeps joined sentence text readable and a word merger (see
+# ``merge_english_phrase``) keeps caption word timings intact.
+_PHRASE_REPLACEMENTS = (
+    (
+        re.compile(
+            r"प्रमुख\s+(?:त्यति|अत्यति)\s+विश[ेि]ष्ट\s+(?:अत्यति|अतिति)" r"(?:\s+(?:अत्यति|अतिति))?"
+        ),
+        "प्रमुख अतिथि, विशिष्ट अतिथि, अतिथि",
+    ),
+    (re.compile(r"स्वागतमन्तव्यको\s+मुख्य\s+भाषा"), "स्वागतमन्तव्यको मुख्य भाग"),
+    (re.compile(r"मुख्य\s+भाषा\s+हो"), "मुख्य भाग हो"),
+    # Context-dependent spelling fixes: "भनेछ" and "मेल्यो" are real words in
+    # other contexts, so only rewrite the ASR's habitual phrase.
+    (re.compile(r"(?<!\S)अहिलेको\s+लागि\s+भनेछ(?!\S)"), "अहिलेको लागि भने"),
+    (re.compile(r"(?<!\S)गर्न\s+मेल्यो(?!\S)"), "गर्न मिल्यो"),
+    # Whisper repeatedly hears "here" as "heard" after "finally".
+    (re.compile(r"(?<!\S)is\s+finally\s+heard(?!\S)", re.IGNORECASE), "is finally here"),
+    # The fine-tune drops the integer in "ChatGPT 3.5"; a second model on the
+    # same audio returns "ChatGPT 3.5 model", and ".5" alone is never a valid
+    # version label here.
+    (re.compile(r"(?<!\S)ChatGPT\s*\.\s*५(?![\d०-९])"), "ChatGPT 3.5"),
+)
+
+_CHATGPT_SPLIT_RE = re.compile(
+    r"(?:चार|च्याट|च्याड|chat)\s+"
+    r"(?:GPT|जिपिटी|जीपीटी|जिपिटि|जीपीटी)"
+    r"((?:को|ले|मा|का|की|कै|सँग|संग|बाट|बाटै)?)",
+    re.IGNORECASE,
+)
+_OPENAI_SPLIT_RE = re.compile(
+    r"(?:Open|ओपन)\s+AI((?:को|ले|मा|का|की|कै|सँग|संग|बाट|बाटै)?)",
+    re.IGNORECASE,
+)
+
+# Phrase-level replacements applied after tokens are joined. Each entry works
+# on whole words, so it cannot corrupt a longer word that merely contains the
+# pattern.
+NEPALI_PHRASE_CORRECTIONS = (
+    *_PHRASE_REPLACEMENTS[:5],
+    (
+        re.compile(rf"(?<!\S){_CHATGPT_SPLIT_RE.pattern}(?!\S)", re.IGNORECASE),
+        r"ChatGPT\1",
+    ),
+    (
+        re.compile(rf"(?<!\S){_OPENAI_SPLIT_RE.pattern}(?!\S)", re.IGNORECASE),
+        r"OpenAI\1",
+    ),
+    *_PHRASE_REPLACEMENTS[5:],
+)
+
+# Small context-sensitive fixes for words that are valid Nepali or English in
+# another context. ``(previous words..., target, replacement)``.
+CONTEXT_WORD_CORRECTIONS: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (("अहिलेको", "लागि"), "भनेछ", "भने"),
+    (("गर्न",), "मेल्यो", "मिल्यो"),
+    (("finally",), "heard", "here"),
+    # The decoder drops the integer in "ChatGPT 3.5"; the decimal token keeps
+    # its leading dot, so match the whole token rather than a bare digit.
+    (("ChatGPT",), ".५", "3.5"),
+)
+
+_WORD_EDGE_PUNCTUATION = "।॥.,;:!?…\"'“”‘’()[]{}<>«»‹›/\\-–—"
+
+
+def _strip_trailing_punctuation(text: str) -> tuple[str, str]:
+    end = len(text)
+    while end > 0 and text[end - 1] in _WORD_EDGE_PUNCTUATION:
+        end -= 1
+    return text[:end], text[end:]
+
+
+def correct_nepali_phrases(text: str) -> str:
+    """Apply phrase-level fixes that need more than one token of context."""
+
+    for pattern, replacement in NEPALI_PHRASE_CORRECTIONS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def merge_english_phrase(first: str, second: str) -> str | None:
+    """Return one canonical token when two adjacent words form a known name.
+
+    The ASR splits ``ChatGPT`` and ``OpenAI`` inconsistently (``चार GPT``,
+    ``chat GPT``, ``Open AI``). Merging them at word level lets the caption
+    renderer, karaoke timing, and Roman transliterator see one word while
+    keeping the first word's start and the second word's end.
+    """
+
+    if not first or not second:
+        return None
+    if first != first.strip(_WORD_EDGE_PUNCTUATION):
+        return None
+    second_core, second_trailing = _strip_trailing_punctuation(second)
+    if not second_core:
+        return None
+    joined = f"{first} {second_core}"
+    for pattern, replacement in (
+        (_CHATGPT_SPLIT_RE, r"ChatGPT\1"),
+        (_OPENAI_SPLIT_RE, r"OpenAI\1"),
+    ):
+        if pattern.fullmatch(joined):
+            return pattern.sub(replacement, joined) + second_trailing
+    return None
+
+
+def correct_word_in_context(previous_words: Sequence[str], word: str) -> str | None:
+    """Correct a word only when its preceding words match a known ASR error."""
+
+    core, trailing = _strip_trailing_punctuation(word)
+    if not core:
+        return None
+    for context, target, replacement in CONTEXT_WORD_CORRECTIONS:
+        if core != target or len(previous_words) < len(context):
+            continue
+        previous = tuple(
+            _strip_trailing_punctuation(item)[0]
+            for item in previous_words[-len(context) :]
+        )
+        if previous == context:
+            return replacement + trailing
+    return None
+
+
+def correct_words_in_context(words: Sequence[str]) -> list[str]:
+    """Apply :func:`correct_word_in_context` across a sequence of words."""
+
+    corrected = list(words)
+    for index, word in enumerate(corrected):
+        replacement = correct_word_in_context(corrected[max(0, index - 2) : index], word)
+        if replacement is not None:
+            corrected[index] = replacement
+    return corrected
 
 _NEPALI_ENGLISH_TERMS_PATH = (
     Path(__file__).resolve().parents[2] / "assets" / "nepali-english-terms.json"

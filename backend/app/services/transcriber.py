@@ -22,7 +22,18 @@ from app.core.errors import JobCancelledError, ProcessingError
 from app.pipeline.timing import clamp_word_end, text_timing_weight
 from app.pipeline.types import Sentence, Transcript, Word
 from app.services.media import get_media_tools
-from app.services.nepali_terms import correct_nepali_word as _correct_nepali_word
+from app.services.nepali_terms import (
+    correct_nepali_phrases as _correct_nepali_phrases,
+)
+from app.services.nepali_terms import (
+    correct_nepali_word as _correct_nepali_word,
+)
+from app.services.nepali_terms import (
+    correct_words_in_context as _correct_words_in_context,
+)
+from app.services.nepali_terms import (
+    merge_english_phrase as _merge_english_phrase,
+)
 from app.services.process import run_process
 
 logger = logging.getLogger(__name__)
@@ -201,48 +212,17 @@ def _normalize_word(text: str) -> str:
     return " ".join(text.replace("\n", " ").split())
 
 
-_NEPALI_PHRASE_CORRECTIONS = (
-    (
-        re.compile(
-            r"प्रमुख\s+(?:त्यति|अत्यति)\s+विश[ेि]ष्ट\s+(?:अत्यति|अतिति)" r"(?:\s+(?:अत्यति|अतिति))?"
-        ),
-        "प्रमुख अतिथि, विशिष्ट अतिथि, अतिथि",
-    ),
-    (re.compile(r"स्वागतमन्तव्यको\s+मुख्य\s+भाषा"), "स्वागतमन्तव्यको मुख्य भाग"),
-    (re.compile(r"मुख्य\s+भाषा\s+हो"), "मुख्य भाग हो"),
-    # The fine-tune frequently hears the "Chat" in ChatGPT as चार ("four").
-    (
-        re.compile(r"(?<!\S)चार\s+(?:जिपिटी|GPT)((?:को|ले|मा|का|की|सँग|बाट)?)(?!\S)"),
-        r"ChatGPT\1",
-    ),
-)
 _REPEATED_WORD_RE = re.compile(r"(?<!\S)(\S+)\s+\1(?!\S)")
 _REPEATED_PUNCT_RE = re.compile(r"([।॥])\1{2,}")
-# Word-level mapping intentionally keeps the Nepali case ending on an English
-# stem (``YouTubeमा``). These phrases are product names, so they should stay
-# one Latin word rather than "chat GPT".
-_ENGLISH_PHRASE_CORRECTIONS = (
-    (
-        re.compile(r"(?<!\S)chat\s+GPT((?:को|ले|मा|का|की|सँग|बाट)?)(?!\S)"),
-        r"ChatGPT\1",
-    ),
-    (
-        re.compile(r"(?<!\S)[Oo]pen\s+AI((?:को|ले|मा|का|की|सँग|बाट)?)(?!\S)"),
-        r"OpenAI\1",
-    ),
-)
 
 
 def _join_words(texts: list[str]) -> str:
     text = " ".join(texts)
-    for pattern, replacement in _ENGLISH_PHRASE_CORRECTIONS:
-        text = pattern.sub(replacement, text)
+    text = _correct_nepali_phrases(text)
     if _DEVANAGARI_RE.search(text):
         text = _PUNCTUATION_SPACE_RE.sub(r"\1", text)
         text = _REPEATED_WORD_RE.sub(r"\1", text)
         text = _REPEATED_PUNCT_RE.sub(r"\1", text)
-        for pattern, replacement in _NEPALI_PHRASE_CORRECTIONS:
-            text = pattern.sub(replacement, text)
     return text.strip()
 
 
@@ -347,7 +327,73 @@ def _build_words(segments: list[Any], duration: float) -> list[Word]:
     for index, word in enumerate(words):
         next_start = words[index + 1].start if index + 1 < len(words) else None
         word.end = round(clamp_word_end(word.text, word.start, word.end, next_start), 3)
-    return _dedupe_words(words, duration)
+    return _finalize_words(words, duration)
+
+
+def _merge_phrase_words(words: list[Word]) -> list[Word]:
+    """Merge adjacent words that the ASR split out of one English term."""
+
+    if len(words) < 2:
+        return words
+    merged: list[Word] = []
+    index = 0
+    while index < len(words):
+        current = words[index]
+        if index + 1 < len(words):
+            following = words[index + 1]
+            # A long pause means the decoder started a new phrase; never merge
+            # across a sentence-like gap just because the words look similar.
+            if following.start - current.end <= 0.45:
+                combined = _merge_english_phrase(current.text, following.text)
+                if combined is not None:
+                    merged.append(
+                        Word(
+                            start=current.start,
+                            end=following.end,
+                            text=combined,
+                            probability=min(current.probability, following.probability),
+                        )
+                    )
+                    index += 2
+                    continue
+        merged.append(current)
+        index += 1
+    return merged
+
+
+def _apply_context_word_corrections(words: list[Word]) -> list[Word]:
+    """Fix context-dependent word errors without changing token timings."""
+
+    corrected = _correct_words_in_context([word.text for word in words])
+    for word, text in zip(words, corrected, strict=True):
+        word.text = text
+    return words
+
+
+def _finalize_words(words: list[Word], duration: float) -> list[Word]:
+    """Dedupe, merge split English names, then repair context-dependent words."""
+
+    return _apply_context_word_corrections(_merge_phrase_words(_dedupe_words(words, duration)))
+
+
+def normalize_cached_words(words: list[Word], duration: float) -> list[Word]:
+    """Re-apply current normalisation to words loaded from a transcript cache.
+
+    Cached transcripts are reused across releases. Running the same spelling,
+    merge, and context passes keeps an old cache consistent with the current
+    editor, Roman preview, SRT export, and renderer.
+    """
+
+    normalized = [
+        Word(
+            start=word.start,
+            end=word.end,
+            text=_normalize_word(word.text),
+            probability=word.probability,
+        )
+        for word in words
+    ]
+    return _finalize_words(normalized, duration)
 
 
 def _dedupe_words(words: list[Word], duration: float) -> list[Word]:
@@ -1014,7 +1060,7 @@ async def _transcribe_accurate_chunks(
         )
         warnings.extend(repair_warnings)
     words.sort(key=lambda word: (word.start, word.end))
-    words = _dedupe_words(words, duration)
+    words = _finalize_words(words, duration)
     sentences = build_sentences(words)
     if not words:
         warnings.append("No speech was detected in this video.")
@@ -1712,7 +1758,7 @@ async def transcribe_windows(
             )
 
     words.sort(key=lambda word: (word.start, word.end))
-    words = _dedupe_words(words, duration)
+    words = _finalize_words(words, duration)
     sentences = build_sentences(words)
     if not words:
         warnings.append("No speech was detected in the selected highlight windows.")

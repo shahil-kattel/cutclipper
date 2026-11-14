@@ -20,6 +20,7 @@ from app.schemas import (
     CaptionWord,
     NepaliScript,
 )
+from app.services.nepali_terms import correct_nepali_phrases
 from app.services.romanize import romanize_words
 
 _SAFE_SIDE_FRACTION = 0.095
@@ -36,16 +37,6 @@ _DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
 _DEVANAGARI_PUNCT_SPACE_RE = re.compile(r"\s+([,;:!?%)\]।॥])")
 _REPEATED_WORD_RE = re.compile(r"(?<!\S)(\S+)\s+\1(?!\S)")
 _REPEATED_PUNCT_RE = re.compile(r"([।॥])\1{2,}")
-_NEPALI_PHRASE_CORRECTIONS = (
-    (
-        re.compile(
-            r"प्रमुख\s+(?:त्यति|अत्यति)\s+विश[ेि]ष्ट\s+(?:अत्यति|अतिति)" r"(?:\s+(?:अत्यति|अतिति))?"
-        ),
-        "प्रमुख अतिथि, विशिष्ट अतिथि, अतिथि",
-    ),
-    (re.compile(r"स्वागतमन्तव्यको\s+मुख्य\s+भाषा"), "स्वागतमन्तव्यको मुख्य भाग"),
-    (re.compile(r"मुख्य\s+भाषा\s+हो"), "मुख्य भाग हो"),
-)
 _RAINBOW_COLOURS = ("#FF6B8A", "#FFD166", "#7BD389", "#4CC9F0", "#B69CFF")
 _ENTRANCE_DURATIONS_MS: dict[CaptionStyle, int] = {
     CaptionStyle.SLIDE: 420,
@@ -108,12 +99,14 @@ def _clean_caption_text(value: str) -> str:
 
 def _join_caption_text(parts: list[str]) -> str:
     text = " ".join(parts).strip()
+    # The shared phrase pass also repairs split English product names such as
+    # "चार GPTको" -> "ChatGPTको", so the editor, preview, SRT, and burned
+    # captions all show the same corrected line.
+    text = correct_nepali_phrases(text)
     if _DEVANAGARI_RE.search(text):
         text = _DEVANAGARI_PUNCT_SPACE_RE.sub(r"\1", text)
         text = _REPEATED_WORD_RE.sub(r"\1", text)
         text = _REPEATED_PUNCT_RE.sub(r"\1", text)
-        for pattern, replacement in _NEPALI_PHRASE_CORRECTIONS:
-            text = pattern.sub(replacement, text)
     return text
 
 
