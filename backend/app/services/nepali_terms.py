@@ -168,8 +168,7 @@ def correct_word_in_context(previous_words: Sequence[str], word: str) -> str | N
         if core != target or len(previous_words) < len(context):
             continue
         previous = tuple(
-            _strip_trailing_punctuation(item)[0]
-            for item in previous_words[-len(context) :]
+            _strip_trailing_punctuation(item)[0] for item in previous_words[-len(context) :]
         )
         if previous == context:
             return replacement + trailing
@@ -185,6 +184,7 @@ def correct_words_in_context(words: Sequence[str]) -> list[str]:
         if replacement is not None:
             corrected[index] = replacement
     return corrected
+
 
 _NEPALI_ENGLISH_TERMS_PATH = (
     Path(__file__).resolve().parents[2] / "assets" / "nepali-english-terms.json"

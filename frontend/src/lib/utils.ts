@@ -83,6 +83,19 @@ export function aspectCss(aspect: ClipSettings['aspect_ratio']): string {
   return aspect.replace(':', ' / ')
 }
 
+/** Pixel canvas used by the renderer for an aspect ratio at 1080p. */
+export function aspectPixelSize(aspect: ClipSettings['aspect_ratio']): {
+  width: number
+  height: number
+} {
+  const [ratioWidth, ratioHeight] = aspect.split(':').map(Number)
+  if (!ratioWidth || !ratioHeight) return { width: 1080, height: 1920 }
+  if (ratioWidth >= ratioHeight) {
+    return { width: Math.round((1080 * ratioWidth) / ratioHeight), height: 1080 }
+  }
+  return { width: 1080, height: Math.round((1080 * ratioHeight) / ratioWidth) }
+}
+
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return count === 1 ? singular : plural
 }

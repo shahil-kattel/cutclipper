@@ -1,38 +1,52 @@
 import { useEffect, useState } from 'react'
 import { Download, Pause, Play, Sparkles, X } from 'lucide-react'
-import type { CaptionSettings, Job } from '../types/api'
+import type { CaptionSegment, CaptionSettings, Job } from '../types/api'
 import { assetUrl, downloadAllUrl, errorMessage } from '../lib/api'
 import { cn, formatDuration } from '../lib/utils'
 import { Button } from './ui'
 import { CaptionPreview } from './CaptionPreview'
-import { CaptionStyleControls, CaptionToggleRow } from './CaptionControls'
+import { CaptionStyleControls, CaptionToggleRow, NepaliScriptToggle } from './CaptionControls'
 
 export function CaptionExportStudio({
   job,
+  segments,
+  initialCaptions,
   onApply,
   onClose,
+  onEditText,
 }: {
   job: Job
+  segments?: CaptionSegment[]
+  initialCaptions?: CaptionSettings
   onApply: (captions: CaptionSettings) => Promise<void>
   onClose: () => void
+  onEditText?: () => void
 }) {
-  const [draft, setDraft] = useState<CaptionSettings>(() => structuredClone(job.settings.captions))
+  const [draft, setDraft] = useState<CaptionSettings>(() =>
+    structuredClone(initialCaptions ?? job.settings.captions),
+  )
   const [playing, setPlaying] = useState(true)
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDraft(structuredClone(job.settings.captions))
+    setDraft(structuredClone(initialCaptions ?? job.settings.captions))
     setError(null)
-  }, [job.id, job.settings.captions])
+  }, [job.id, job.settings.captions, initialCaptions])
 
   const captionMode = job.mode === 'captions'
   const primaryClip = job.clips[0]
-  const aspect =
-    captionMode && primaryClip
-      ? `${primaryClip.width} / ${primaryClip.height}`
-      : job.settings.aspect_ratio.replace(':', ' / ')
+  const previewWidth = primaryClip?.width ?? 1080
+  const previewHeight = primaryClip?.height ?? 1920
+  const aspect = `${previewWidth} / ${previewHeight}`
+  const previewSegment = segments?.find((segment) => segment.text.trim())
+  const previewTime = previewSegment
+    ? Math.min(
+        previewSegment.start + 0.01,
+        Math.max(previewSegment.start, previewSegment.end - 0.001),
+      )
+    : undefined
   const downloadHref =
     captionMode && primaryClip ? assetUrl(primaryClip.download_url) : downloadAllUrl(job)
   const changed = JSON.stringify(draft) !== JSON.stringify(job.settings.captions)
@@ -65,14 +79,21 @@ export function CaptionExportStudio({
             rendered export. Your current files stay downloadable while the new version renders.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close caption editor"
-          className="flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-lg border-[1.5px] border-ink bg-paper-soft text-ink shadow-[1px_2px_0_#211d19] transition hover:bg-tomato-soft sm:self-auto"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
+        <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
+          {onEditText ? (
+            <Button variant="secondary" size="sm" onClick={onEditText}>
+              Edit words
+            </Button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close caption editor"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-[1.5px] border-ink bg-paper-soft text-ink shadow-[1px_2px_0_#211d19] transition hover:bg-tomato-soft"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(16rem,0.78fr)_minmax(0,1.35fr)]">
@@ -97,7 +118,7 @@ export function CaptionExportStudio({
               </button>
             </div>
             <div
-              className="relative mx-auto max-h-[28rem] w-full max-w-[19rem] overflow-hidden rounded-[0.8rem] border-[1.5px] border-ink bg-[#171411]"
+              className="relative mx-auto w-full max-w-[18rem] overflow-hidden rounded-[0.8rem] border-[1.5px] border-ink bg-[#171411]"
               style={{ aspectRatio: aspect }}
             >
               {job.video?.thumbnail_url ? (
@@ -113,8 +134,13 @@ export function CaptionExportStudio({
               {draft.enabled ? (
                 <CaptionPreview
                   settings={draft}
-                  loop
+                  segments={previewSegment ? [previewSegment] : undefined}
+                  words={previewSegment?.words}
+                  time={previewTime}
+                  loop={!previewSegment}
                   paused={!playing}
+                  videoWidth={previewWidth}
+                  videoHeight={previewHeight}
                   className="absolute inset-0"
                 />
               ) : null}
@@ -154,6 +180,22 @@ export function CaptionExportStudio({
                   : 'Burn styled captions into this fresh export.'
             }
           />
+          {draft.enabled ? (
+            <div className="flex flex-col gap-2 rounded-xl border-[1.5px] border-ink/25 bg-paper px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[11.5px] font-semibold text-ink">Nepali caption script</p>
+                <p className="mt-0.5 text-[10px] leading-4 text-ink-soft">
+                  देवनागरी keeps the spoken text; Roman writes the Nepali words in Latin letters.
+                  English words stay English either way.
+                </p>
+              </div>
+              <NepaliScriptToggle
+                value={draft.nepali_script ?? 'devanagari'}
+                onChange={(nepali_script) => setDraft((current) => ({ ...current, nepali_script }))}
+                devanagariFont={draft.secondary_font}
+              />
+            </div>
+          ) : null}
           <div className={cn(!draft.enabled && 'pointer-events-none opacity-50')}>
             <CaptionStyleControls
               settings={draft}

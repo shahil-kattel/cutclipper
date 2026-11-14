@@ -160,6 +160,14 @@ export interface RomanizeResponse {
   segments: CaptionSegment[]
 }
 
+export interface JobCaptionsResponse {
+  job_id: string
+  duration: number
+  language: string | null
+  segments: CaptionSegment[]
+  words: TranscriptWord[]
+}
+
 export interface Clip {
   id: string
   index: number

@@ -630,6 +630,14 @@ writes it phonetically in Roman letters. Add the spelling to
   `backend/assets/nepali-roman-lexicon.json`, and
   `POST /api/captions/romanize`. `build_ass` applies the same transliterator
   before grouping so the preview and burned output agree.
+- Caption editor on every page except home:
+  `frontend/src/components/CaptionEditorPanel.tsx` is the shared drawer for
+  text, timing, split/merge/add/delete, and the देवनागरी/Roman toggle. On the
+  Download screen it loads the burned-in lines from
+  `GET /api/jobs/{id}/captions`; applying sends those lines to
+  `POST /api/jobs/{id}/restyle`, which re-renders the same cuts and style with
+  the edited words. On the Style screen the edited lines are passed to the next
+  `POST /api/jobs` render.
 - Nepali → English translation prompt: `backend/app/services/translator.py`.
   English-only lines are kept unchanged; only Nepali and mixed lines are sent
   through translation. Translation always uses the canonical Devanagari lines,

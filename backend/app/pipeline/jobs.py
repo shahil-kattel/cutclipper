@@ -32,7 +32,7 @@ from app.core.errors import (
 from app.core.validation import validate_remote_url
 from app.logging_setup import job_id_ctx
 from app.pipeline.caption_render import render_captioned_video
-from app.pipeline.captions import words_from_segments
+from app.pipeline.captions import build_caption_segments, words_from_segments
 from app.pipeline.renderer import ClipRenderer, safe_title_slug
 from app.pipeline.selection import (
     TranscriptionWindow,
@@ -238,8 +238,15 @@ class JobManager:
         self,
         source_job_id: str,
         captions: CaptionSettings,
+        segments: list[CaptionSegment] | None = None,
+        secondary_segments: list[CaptionSegment] | None = None,
     ) -> JobRecord:
-        """Queue a caption-only re-render using the original source and cut plan."""
+        """Queue a caption-only re-render using the original source and cut plan.
+
+        When ``segments`` is supplied the re-render also replaces the caption
+        text, not just its style. Clip jobs keep their original cuts and use
+        the edited full-video words for every clip.
+        """
 
         source = self.get(source_job_id)
         if source.status != JobStatus.COMPLETED:
@@ -266,6 +273,7 @@ class JobManager:
             and source.settings.captions.enabled is False
             and captions.enabled
             and not source.caption_words
+            and not segments
         ):
             raise AppError(
                 "This render has no speech timings available for captions.",
@@ -282,15 +290,33 @@ class JobManager:
         job_id = uuid.uuid4().hex
         settings = source.settings.model_copy(deep=True)
         settings.captions = captions
+        edited_segments = copy.deepcopy(segments) if segments is not None else None
+        edited_secondary = (
+            copy.deepcopy(secondary_segments)
+            if secondary_segments is not None
+            else copy.deepcopy(source.secondary_segments)
+        )
+        caption_words = (
+            words_from_segments(edited_segments)
+            if edited_segments is not None
+            else copy.deepcopy(source.caption_words)
+        )
         record = JobRecord(
             id=job_id,
             url=source.url,
             settings=settings,
             upload_id=source.upload_id,
             mode=source.mode,
+            # Keep the edited lines on the new record so the caption editor can
+            # reopen them after a reload, including for clip jobs.
+            segments=(
+                copy.deepcopy(edited_segments)
+                if edited_segments is not None
+                else copy.deepcopy(source.segments)
+            ),
             video=source.video,
-            caption_words=copy.deepcopy(source.caption_words),
-            secondary_segments=copy.deepcopy(source.secondary_segments),
+            caption_words=caption_words,
+            secondary_segments=edited_secondary,
             clip_plans=copy.deepcopy(source.clip_plans),
             restyle_of=source.id,
             base_dir=self.settings.jobs_dir,
@@ -310,6 +336,22 @@ class JobManager:
         await self.queue.put(job_id)
         logger.info("caption restyle queued", extra={"job_id": job_id, "source": source.id})
         return record
+
+    def caption_lines(
+        self,
+        job_id: str,
+    ) -> tuple[float, list[CaptionSegment], list[Word]]:
+        """Return editable caption lines and words for an existing job."""
+
+        record = self.get(job_id)
+        if record.segments:
+            segments = copy.deepcopy(record.segments)
+            words = words_from_segments(segments)
+        else:
+            words = list(record.caption_words)
+            segments = build_caption_segments(words) if words else []
+        duration = record.video.duration if record.video else 0.0
+        return duration, segments, words
 
     def get(self, job_id: str) -> JobRecord:
         record = self.jobs.get(job_id)
@@ -1277,6 +1319,19 @@ class JobManager:
             energy=energy,
             allowed_windows=windows if partial_transcription else None,
         )
+        if record.segments:
+            # The caption editor supplied corrected lines before this clip job
+            # started. Keep the original clip plan, but burn the edited words.
+            edited_words = words_from_segments(record.segments)
+            if edited_words:
+                transcript = Transcript(
+                    words=edited_words,
+                    sentences=transcript.sentences,
+                    language=transcript.language,
+                    language_probability=transcript.language_probability,
+                    duration=transcript.duration,
+                    warnings=transcript.warnings,
+                )
         record.caption_words = list(transcript.words)
         record.clip_plans = copy.deepcopy(selection.clips)
         for warning in selection.warnings:

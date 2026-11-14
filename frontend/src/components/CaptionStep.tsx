@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft,
@@ -10,11 +10,7 @@ import {
   Languages,
   LoaderCircle,
   Palette,
-  Play,
-  Plus,
-  Scissors,
   Sparkles,
-  Trash2,
   TriangleAlert,
   Type,
   WandSparkles,
@@ -26,7 +22,6 @@ import type {
   ExportResolution,
   PreviewResponse,
   TranscriptResponse,
-  TranscriptWord,
   TranscriptionQuality,
   TranscriptionTask,
 } from '../types/api'
@@ -38,6 +33,7 @@ import { useToast } from '../hooks/useToast'
 import { Button, Pill, SectionCard } from './ui'
 import { CaptionPreview } from './CaptionPreview'
 import { CaptionStyleControls, CaptionToggleRow, NepaliScriptToggle } from './CaptionControls'
+import { CaptionLineEditor } from './CaptionEditorPanel'
 
 interface CaptionStepProps {
   preview: PreviewResponse
@@ -117,72 +113,6 @@ function formatTimecode(value: number): string {
 
 const DEVANAGARI_RE = /[ऀ-ॿ]/
 
-function captionLanguage(text: string): CaptionSegment['language'] {
-  const devanagari = DEVANAGARI_RE.test(text)
-  const latin = /[A-Za-z]/.test(text)
-  if (devanagari && latin) return 'mixed'
-  if (devanagari) return 'ne'
-  if (latin) return 'en'
-  return null
-}
-
-function tokensOf(text: string): string[] {
-  return text.split(/\s+/).filter(Boolean)
-}
-
-/** Keep exact word timings when a text edit only changes spelling/case. */
-function retimeWordsForText(
-  words: TranscriptWord[] | undefined,
-  text: string,
-): TranscriptWord[] | undefined {
-  if (!words?.length) return undefined
-  const tokens = tokensOf(text)
-  if (tokens.length !== words.length) return undefined
-  return words.map((word, index) => ({ ...word, text: tokens[index] ?? word.text }))
-}
-
-/** Scale existing word timings when the user moves a line's start or end. */
-function scaleWords(
-  words: TranscriptWord[] | undefined,
-  oldStart: number,
-  oldEnd: number,
-  newStart: number,
-  newEnd: number,
-): TranscriptWord[] | undefined {
-  if (!words?.length) return undefined
-  const oldSpan = Math.max(0.01, oldEnd - oldStart)
-  const newSpan = Math.max(0.01, newEnd - newStart)
-  return words.map((word) => {
-    const start = newStart + ((word.start - oldStart) / oldSpan) * newSpan
-    const end = newStart + ((word.end - oldStart) / oldSpan) * newSpan
-    return {
-      ...word,
-      start: Math.max(newStart, start),
-      end: Math.min(newEnd, Math.max(start + 0.01, end)),
-    }
-  })
-}
-
-function applySegmentPatch(
-  segment: CaptionSegment,
-  patch: Partial<CaptionSegment>,
-): CaptionSegment {
-  let words = segment.words
-  if (patch.text !== undefined) {
-    words = retimeWordsForText(segment.words, patch.text)
-  }
-  const next: CaptionSegment = {
-    ...segment,
-    ...patch,
-    words,
-    language: captionLanguage(patch.text ?? segment.text),
-  }
-  if (patch.start !== undefined || patch.end !== undefined) {
-    next.words = scaleWords(next.words, segment.start, segment.end, next.start, next.end)
-  }
-  return next
-}
-
 export function CaptionStep({
   preview,
   transcript,
@@ -219,18 +149,6 @@ export function CaptionStep({
   const videoRef = useRef<HTMLVideoElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
-  const [stageHeight, setStageHeight] = useState(480)
-  const [selectedSegment, setSelectedSegment] = useState<number | null>(null)
-
-  useEffect(() => {
-    const element = stageRef.current
-    if (!element) return
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) setStageHeight(entry.contentRect.height)
-    })
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
 
   const activeIndex = segments.findIndex(
     (segment) => currentTime >= segment.start - 0.02 && currentTime < segment.end,
@@ -251,129 +169,9 @@ export function CaptionStep({
   const primaryPreviewSegments =
     romanScript && captionView === 'source' ? romanSourceSegments : segments
   const secondaryPreviewSegments = romanScript ? romanSourceSegments : sourceSegments
-  const romanByStart = new Map(
-    (romanSegments ?? []).map((segment) => [segment.start.toFixed(3), segment]),
-  )
   const srtSegments =
     romanScript && captionView === 'source' && romanSegments ? romanSegments : segments
   const srtNeedsRoman = romanScript && captionView === 'source' && (!romanSegments || romanising)
-
-  const updateSegment = (index: number, patch: Partial<CaptionSegment>) => {
-    const next = segments.map((segment, position) =>
-      position === index ? applySegmentPatch(segment, patch) : segment,
-    )
-    onSegmentsChange(next)
-  }
-
-  const deleteSegment = (index: number) => {
-    onSegmentsChange(segments.filter((_, position) => position !== index))
-    setSelectedSegment(null)
-  }
-
-  const mergeWithNext = (index: number) => {
-    const current = segments[index]
-    const next = segments[index + 1]
-    if (!current || !next) return
-    const text = `${current.text} ${next.text}`.trim()
-    const mergedWords =
-      current.words?.length &&
-      next.words?.length &&
-      current.words.length + next.words.length === tokensOf(text).length
-        ? [...current.words, ...next.words]
-        : undefined
-    const merged: CaptionSegment = {
-      start: current.start,
-      end: Math.max(current.end, next.end),
-      text,
-      words: mergedWords,
-      language: captionLanguage(text),
-    }
-    onSegmentsChange([...segments.slice(0, index), merged, ...segments.slice(index + 2)])
-  }
-
-  const splitSegment = (index: number) => {
-    const current = segments[index]
-    if (!current) return
-    const words = current.text.split(/\s+/).filter(Boolean)
-    if (words.length < 2) return
-    const splitAt =
-      currentTime > current.start + 0.15 && currentTime < current.end - 0.15
-        ? currentTime
-        : current.start + (current.end - current.start) / 2
-    const ratio = (splitAt - current.start) / Math.max(0.05, current.end - current.start)
-    const splitIndex = Math.min(words.length - 1, Math.max(1, Math.round(words.length * ratio)))
-    const left = words.slice(0, splitIndex).join(' ')
-    const right = words.slice(splitIndex).join(' ')
-    const splitWords =
-      current.words?.length === words.length
-        ? {
-            left: current.words.slice(0, splitIndex).map((word, sliceIndex) => ({
-              ...word,
-              end:
-                sliceIndex === splitIndex - 1
-                  ? Math.min(word.end, Math.max(word.start + 0.01, splitAt))
-                  : word.end,
-            })),
-            right: current.words.slice(splitIndex).map((word, sliceIndex) => ({
-              ...word,
-              start:
-                sliceIndex === 0
-                  ? Math.max(word.start, Math.min(splitAt, word.end - 0.01))
-                  : word.start,
-            })),
-          }
-        : null
-    onSegmentsChange([
-      ...segments.slice(0, index),
-      {
-        start: current.start,
-        end: splitAt,
-        text: left,
-        words: splitWords?.left,
-        language: captionLanguage(left),
-      },
-      {
-        start: splitAt,
-        end: current.end,
-        text: right,
-        words: splitWords?.right,
-        language: captionLanguage(right),
-      },
-      ...segments.slice(index + 1),
-    ])
-  }
-
-  const addSegment = () => {
-    const duration = Math.max(0, preview.duration)
-    if (duration < 0.2) return
-    const gap = 0.05
-    const minLength = Math.min(1, duration)
-    const last = segments[segments.length - 1]
-    let insertAt = segments.length
-    let start = 0
-    if (last) {
-      start = last.end + gap
-      if (start > duration - minLength) {
-        // The last line already reaches the end of the video. Add the new
-        // line before it when there is a real gap, never on top of it.
-        const previous = segments[segments.length - 2]
-        const previousEnd = previous ? previous.end : 0
-        if (last.start - previousEnd < minLength + gap) {
-          toast.info('No room for another line. Shorten or split an existing line first.')
-          return
-        }
-        insertAt = segments.length - 1
-        start = previousEnd + gap
-      }
-    }
-    const end = Math.min(duration, Math.max(start + minLength, start + 3))
-    onSegmentsChange([
-      ...segments.slice(0, insertAt),
-      { start: Number(start.toFixed(2)), end: Number(end.toFixed(2)), text: 'New caption' },
-      ...segments.slice(insertAt),
-    ])
-    setSelectedSegment(insertAt)
-  }
 
   const validateSegments = (): boolean => {
     if (!segments.length) {
@@ -410,11 +208,6 @@ export function CaptionStep({
     setCurrentTime(video.currentTime)
     void video.play()
   }
-
-  const stageFontSize = Math.max(
-    13,
-    (captions.font_size / Math.max(1, preview.height || 1080)) * stageHeight,
-  )
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -499,7 +292,8 @@ export function CaptionStep({
                 words={transcript?.words ?? []}
                 time={currentTime}
                 video={videoRef}
-                fontSize={stageFontSize}
+                videoWidth={preview.width || undefined}
+                videoHeight={preview.height || undefined}
                 className="absolute inset-0"
               />
             </div>
@@ -521,27 +315,16 @@ export function CaptionStep({
             tone="tomato"
             description="Edit text, adjust timing, split or merge lines, and preview each line instantly."
             action={
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={Plus}
-                  onClick={addSegment}
-                  disabled={loading || generating}
-                >
-                  Add line
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={WandSparkles}
-                  loading={loading}
-                  onClick={() => onTranscribe(true)}
-                  disabled={generating}
-                >
-                  Re-transcribe
-                </Button>
-              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={WandSparkles}
+                loading={loading}
+                onClick={() => onTranscribe(true)}
+                disabled={generating}
+              >
+                Re-transcribe
+              </Button>
             }
           >
             {!loading && task !== 'translate' ? (
@@ -704,55 +487,37 @@ export function CaptionStep({
               </div>
             ) : null}
 
-            {!loading && !segments.length ? (
-              <div className="rounded-xl border-[1.5px] border-dashed border-ink/30 bg-paper px-5 py-10 text-center">
-                <Type className="mx-auto h-6 w-6 text-ink-faint" aria-hidden="true" />
-                <p className="mt-3 text-sm font-medium text-ink-soft">No caption lines yet</p>
-                <p className="mx-auto mt-1 max-w-md text-[12px] leading-5 text-ink-soft">
-                  {transcript
-                    ? 'No speech was detected. Add a line manually or try re-transcribing with a specific language.'
-                    : 'Transcribe the video to get editable caption lines, or add them manually.'}
+            {!loading && !segments.length && !transcript ? (
+              <div className="mb-3 rounded-xl border border-dashed border-ink/30 bg-paper px-4 py-5 text-center">
+                <Type className="mx-auto h-5 w-5 text-ink-faint" aria-hidden="true" />
+                <p className="mt-2 text-[12px] font-medium text-ink-soft">
+                  Transcribe the video for a starting point, or add a line manually below.
                 </p>
-                <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  <Button
-                    size="sm"
-                    icon={WandSparkles}
-                    loading={loading}
-                    onClick={() => onTranscribe(false)}
-                  >
-                    Transcribe speech
-                  </Button>
-                  <Button size="sm" variant="secondary" icon={Plus} onClick={addSegment}>
-                    Add a line
-                  </Button>
-                </div>
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  icon={WandSparkles}
+                  loading={loading}
+                  onClick={() => onTranscribe(false)}
+                >
+                  Transcribe speech
+                </Button>
               </div>
             ) : null}
 
-            {!loading && segments.length ? (
-              <div className="max-h-[22rem] space-y-2 overflow-y-auto pr-1">
-                {segments.map((segment, index) => (
-                  <SegmentRow
-                    key={index}
-                    index={index}
-                    segment={segment}
-                    duration={preview.duration}
-                    active={index === activeIndex || index === selectedSegment}
-                    canMerge={index + 1 < segments.length}
-                    showRomanHint={
-                      romanScript && captionView === 'source' && DEVANAGARI_RE.test(segment.text)
-                    }
-                    romanText={romanByStart.get(segment.start.toFixed(3))?.text}
-                    romanising={romanising}
-                    onChange={(patch) => updateSegment(index, patch)}
-                    onFocus={() => setSelectedSegment(index)}
-                    onPlay={() => jumpTo(segment.start)}
-                    onSplit={() => splitSegment(index)}
-                    onMerge={() => mergeWithNext(index)}
-                    onDelete={() => deleteSegment(index)}
-                  />
-                ))}
-              </div>
+            {!loading ? (
+              <CaptionLineEditor
+                segments={segments}
+                duration={preview.duration}
+                onChange={onSegmentsChange}
+                currentTime={currentTime}
+                activeIndex={activeIndex}
+                onSeek={jumpTo}
+                romanSegments={romanSegments}
+                romanising={romanising}
+                showRoman={romanScript && captionView === 'source'}
+                disabled={generating}
+              />
             ) : null}
           </SectionCard>
         </div>
@@ -981,193 +746,5 @@ export function CaptionStep({
         </div>
       </div>
     </div>
-  )
-}
-
-function SegmentRow({
-  index,
-  segment,
-  duration,
-  active,
-  canMerge,
-  showRomanHint,
-  romanText,
-  romanising,
-  onChange,
-  onFocus,
-  onPlay,
-  onSplit,
-  onMerge,
-  onDelete,
-}: {
-  index: number
-  segment: CaptionSegment
-  duration: number
-  active: boolean
-  canMerge: boolean
-  showRomanHint: boolean
-  romanText?: string
-  romanising: boolean
-  onChange: (patch: Partial<CaptionSegment>) => void
-  onFocus: () => void
-  onPlay: () => void
-  onSplit: () => void
-  onMerge: () => void
-  onDelete: () => void
-}) {
-  return (
-    <div
-      className={cn(
-        'rounded-xl border px-2.5 py-2 transition',
-        active
-          ? 'border-[1.5px] border-ink bg-mustard-soft shadow-[1px_1px_0_#211d19]'
-          : 'border-ink/20 bg-paper hover:border-ink/50',
-      )}
-    >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span className="w-6 shrink-0 font-display text-[10px] tabular-nums text-ink-faint">
-          {String(index + 1).padStart(2, '0')}
-        </span>
-        <label className="sr-only" htmlFor={`caption-start-${index}`}>
-          Caption {index + 1} start time
-        </label>
-        <TimeInput
-          id={`caption-start-${index}`}
-          value={segment.start}
-          min={0}
-          max={Math.max(0, segment.end - 0.1)}
-          label={`Caption ${index + 1} start`}
-          onFocus={onFocus}
-          onCommit={(value) => onChange({ start: value })}
-        />
-        <span className="text-ink-faint">→</span>
-        <label className="sr-only" htmlFor={`caption-end-${index}`}>
-          Caption {index + 1} end time
-        </label>
-        <TimeInput
-          id={`caption-end-${index}`}
-          value={segment.end}
-          min={Math.min(duration, segment.start + 0.1)}
-          max={duration}
-          label={`Caption ${index + 1} end`}
-          onFocus={onFocus}
-          onCommit={(value) => onChange({ end: value })}
-        />
-        <div className="ml-auto flex items-center gap-0.5">
-          <IconAction label="Play this caption" onClick={onPlay}>
-            <Play className="h-3.5 w-3.5" aria-hidden="true" />
-          </IconAction>
-          <IconAction label="Split at current time" onClick={onSplit}>
-            <Scissors className="h-3.5 w-3.5" aria-hidden="true" />
-          </IconAction>
-          <IconAction label="Merge with next" onClick={onMerge} disabled={!canMerge}>
-            <Plus className="h-3.5 w-3.5 rotate-45" aria-hidden="true" />
-          </IconAction>
-          <IconAction label="Delete caption" onClick={onDelete} danger>
-            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-          </IconAction>
-        </div>
-      </div>
-      <textarea
-        value={segment.text}
-        rows={1}
-        onFocus={onFocus}
-        onChange={(event) => onChange({ text: event.target.value })}
-        className="mt-1.5 w-full resize-none rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12.5px] font-medium leading-5 text-ink focus:border-ink/30 focus:bg-paper-soft focus:outline-none"
-        aria-label={`Caption ${index + 1} text`}
-      />
-      {showRomanHint ? (
-        <p
-          className="mt-0.5 line-clamp-2 min-h-4 px-1 text-[10.5px] leading-4 text-ink-faint"
-          title={romanText}
-        >
-          <span className="mr-1 font-bold uppercase tracking-[0.08em] text-ink-soft/70">Roman</span>
-          {romanText ?? (romanising ? 'Transliterating…' : '—')}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-function TimeInput({
-  id,
-  value,
-  min,
-  max,
-  label,
-  onFocus,
-  onCommit,
-}: {
-  id: string
-  value: number
-  min: number
-  max: number
-  label: string
-  onFocus: () => void
-  onCommit: (value: number) => void
-}) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const display = draft ?? value.toFixed(2)
-
-  const commit = () => {
-    if (draft === null) return
-    const parsed = Number.parseFloat(draft)
-    const lower = Math.min(min, max)
-    const upper = Math.max(min, max)
-    const next = Number.isFinite(parsed) ? Math.min(upper, Math.max(lower, parsed)) : value
-    const rounded = Number(next.toFixed(2))
-    onCommit(rounded)
-    setDraft(null)
-  }
-
-  return (
-    <input
-      id={id}
-      type="text"
-      inputMode="decimal"
-      value={display}
-      onFocus={() => {
-        setDraft(value.toFixed(2))
-        onFocus()
-      }}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur()
-      }}
-      className="paper-input h-7 w-16 rounded-md px-1.5 text-[10.5px] font-semibold tabular-nums text-tomato outline-none"
-      aria-label={label}
-    />
-  )
-}
-
-function IconAction({
-  label,
-  onClick,
-  children,
-  disabled,
-  danger,
-}: {
-  label: string
-  onClick: () => void
-  children: ReactNode
-  disabled?: boolean
-  danger?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className={cn(
-        'inline-flex h-6 w-6 items-center justify-center rounded-md text-ink-soft transition',
-        danger ? 'hover:bg-tomato-soft hover:text-tomato' : 'hover:bg-paper-deep hover:text-ink',
-        'disabled:cursor-not-allowed disabled:opacity-30',
-      )}
-    >
-      {children}
-    </button>
   )
 }

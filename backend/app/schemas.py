@@ -334,6 +334,31 @@ class PreviewRequest(BaseModel):
 class RestyleCaptionsRequest(BaseModel):
     captions: CaptionSettings
     title_suffix: str | None = Field(default=None, max_length=80)
+    # Edited caption lines. When supplied, the restyle replaces the source
+    # render's words instead of merely changing the caption style.
+    segments: list[CaptionSegment] | None = Field(default=None, max_length=5000)
+    secondary_segments: list[CaptionSegment] | None = Field(default=None, max_length=5000)
+
+    @model_validator(mode="after")
+    def ordered_segments(self) -> RestyleCaptionsRequest:
+        for field_name in ("segments", "secondary_segments"):
+            segments = getattr(self, field_name)
+            if not segments:
+                continue
+            ordered = sorted(segments, key=lambda segment: segment.start)
+            previous_end = -1.0
+            for segment in ordered:
+                if segment.start < previous_end - 0.001:
+                    raise ValueError("Caption segments must not overlap.")
+                previous_end = segment.end
+            setattr(self, field_name, ordered)
+        return self
+
+    @model_validator(mode="after")
+    def secondary_needs_primary(self) -> RestyleCaptionsRequest:
+        if self.secondary_segments is not None and self.segments is None:
+            raise ValueError("Add the main caption lines before adding a secondary track.")
+        return self
 
 
 class CreateJobRequest(BaseModel):
@@ -359,19 +384,19 @@ class CreateJobRequest(BaseModel):
     def validate_source_and_mode(self) -> CreateJobRequest:
         if bool(self.url) == bool(self.upload_id):
             raise ValueError("Provide either a video link or an uploaded file.")
+        if self.segments is not None:
+            ordered = sorted(self.segments, key=lambda segment: segment.start)
+            previous_end = -1.0
+            for segment in ordered:
+                if segment.start < previous_end - 0.001:
+                    raise ValueError("Caption segments must not overlap.")
+                previous_end = segment.end
+            self.segments = ordered
         if self.mode == JobMode.CAPTIONS:
             if not self.upload_id:
                 raise ValueError("Caption jobs require an uploaded file.")
             if not self.settings.captions.enabled:
                 raise ValueError("Captions must be enabled for a caption job.")
-            if self.segments is not None:
-                ordered = sorted(self.segments, key=lambda segment: segment.start)
-                previous_end = -1.0
-                for segment in ordered:
-                    if segment.start < previous_end - 0.001:
-                        raise ValueError("Caption segments must not overlap.")
-                    previous_end = segment.end
-                self.segments = ordered
             if self.secondary_segments is not None:
                 if self.segments is None:
                     raise ValueError("Add the main caption lines before adding a secondary track.")
@@ -382,8 +407,6 @@ class CreateJobRequest(BaseModel):
                         raise ValueError("Secondary caption segments must not overlap.")
                     previous_end = segment.end
                 self.secondary_segments = ordered_secondary
-        elif self.segments:
-            raise ValueError("Caption edits are only supported in caption mode.")
         elif self.secondary_segments:
             raise ValueError("Secondary caption lines are only supported in caption mode.")
         return self
@@ -446,6 +469,16 @@ class TranscriptResponse(BaseModel):
     words: list[TranscriptWordOut] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     cached: bool = False
+
+
+class JobCaptionsResponse(BaseModel):
+    """Editable caption lines recovered from a rendered job."""
+
+    job_id: str
+    duration: float
+    language: str | None = None
+    segments: list[CaptionSegment] = Field(default_factory=list)
+    words: list[TranscriptWordOut] = Field(default_factory=list)
 
 
 class VideoMetadata(BaseModel):

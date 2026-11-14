@@ -600,9 +600,7 @@ def romanize_segments(segments: list[CaptionSegment]) -> list[CaptionSegment]:
     flat_source = correct_words_in_context([word.text for _, word in flat_words])
     flat_texts = [
         _restore_punctuation(text)
-        for text in _apply_case_to_sequence(
-            [_romanize_token_raw(source) for source in flat_source]
-        )
+        for text in _apply_case_to_sequence([_romanize_token_raw(source) for source in flat_source])
     ]
     words_by_segment: dict[int, list[str]] = {}
     for (segment_index, _), word_text in zip(flat_words, flat_texts, strict=True):

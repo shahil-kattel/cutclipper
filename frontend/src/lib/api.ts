@@ -4,6 +4,7 @@ import type {
   CaptionSettings,
   ClipSettings,
   Job,
+  JobCaptionsResponse,
   JobOptions,
   JobSource,
   PreviewResponse,
@@ -146,15 +147,23 @@ export async function createJob(
   )
 }
 
-export async function restyleJob(jobId: string, captions: CaptionSettings): Promise<Job> {
+export async function restyleJob(
+  jobId: string,
+  captions: CaptionSettings,
+  segments?: CaptionSegment[],
+): Promise<Job> {
   return request<Job>(
     `/jobs/${encodeURIComponent(jobId)}/restyle`,
     {
       method: 'POST',
-      body: JSON.stringify({ captions }),
+      body: JSON.stringify({ captions, segments }),
     },
     120_000,
   )
+}
+
+export async function getJobCaptions(jobId: string): Promise<JobCaptionsResponse> {
+  return request<JobCaptionsResponse>(`/jobs/${encodeURIComponent(jobId)}/captions`, {}, 30_000)
 }
 
 export async function transcribeCaptions(

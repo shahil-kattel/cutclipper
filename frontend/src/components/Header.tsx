@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Check, Scissors, Sparkles } from 'lucide-react'
+import { Captions, Check, Scissors, Sparkles } from 'lucide-react'
 import type { AppStep } from '../types/api'
 import { cn } from '../lib/utils'
 
@@ -24,7 +24,16 @@ export function BrandMark({ className }: { className?: string }) {
   )
 }
 
-export function Header({ step, captionFlow = false }: { step: AppStep; captionFlow?: boolean }) {
+export function Header({
+  step,
+  captionFlow = false,
+  onEditCaptions,
+}: {
+  step: AppStep
+  captionFlow?: boolean
+  /** Opens the shared caption editor on every page except the home screen. */
+  onEditCaptions?: () => void
+}) {
   const steps = STEPS.map((item) =>
     item.key === 'settings' && captionFlow
       ? { ...item, label: 'Captions', short: 'Caption' }
@@ -101,6 +110,18 @@ export function Header({ step, captionFlow = false }: { step: AppStep; captionFl
         </nav>
 
         <div className="flex items-center gap-2.5">
+          {onEditCaptions ? (
+            <button
+              type="button"
+              onClick={onEditCaptions}
+              className="inline-flex items-center gap-1.5 rounded-lg border-[1.5px] border-ink bg-mustard px-2.5 py-1.5 text-[9.5px] font-bold uppercase tracking-[0.08em] text-ink shadow-[2px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-mustard-soft"
+              aria-label="Edit captions"
+            >
+              <Captions className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">Edit captions</span>
+              <span className="sm:hidden">Captions</span>
+            </button>
+          ) : null}
           <span className="hidden rotate-2 items-center gap-1.5 rounded-md border-[1.5px] border-ink bg-paper-soft px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.13em] text-ink shadow-[2px_2px_0_#211d19] lg:flex">
             <motion.span
               className="text-tomato"

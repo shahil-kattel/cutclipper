@@ -5,6 +5,7 @@ import { BackgroundFX } from './components/BackgroundFX'
 import { Header, BrandMark } from './components/Header'
 import { LinkStep, type SourceMode } from './components/LinkStep'
 import { CaptionStep } from './components/CaptionStep'
+import { CaptionEditorDrawer } from './components/CaptionEditorPanel'
 import { SettingsStep } from './components/SettingsStep'
 import { ProcessingStep } from './components/ProcessingStep'
 import { ResultsStep } from './components/ResultsStep'
@@ -16,6 +17,7 @@ import {
   createJob,
   errorMessage,
   getJob,
+  getJobCaptions,
   isRetryable,
   previewVideo,
   restyleJob,
@@ -33,6 +35,7 @@ import type {
   CaptionSegment,
   CaptionSettings,
   ClipSettings,
+  NepaliScript,
   ExportQuality,
   ExportResolution,
   Job,
@@ -80,6 +83,13 @@ function AppContent() {
   const [translatingCaptions, setTranslatingCaptions] = useState(false)
   const [captionLoading, setCaptionLoading] = useState(false)
   const [captionError, setCaptionError] = useState<string | null>(null)
+  const [captionEditorOpen, setCaptionEditorOpen] = useState(false)
+  const [captionEditorLoading, setCaptionEditorLoading] = useState(false)
+  const [captionEditorError, setCaptionEditorError] = useState<string | null>(null)
+  const [captionEditorApplying, setCaptionEditorApplying] = useState(false)
+  const [captionEditorDuration, setCaptionEditorDuration] = useState<number | null>(null)
+  const [captionEditorScript, setCaptionEditorScript] = useState<NepaliScript | null>(null)
+  const [captionEditorSnapshot, setCaptionEditorSnapshot] = useState<CaptionSegment[] | null>(null)
   const [generating, setGenerating] = useState(false)
   const [generationError, setGenerationError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -91,6 +101,7 @@ function AppContent() {
   const generationRef = useRef(false)
   const generationToken = useRef(0)
   const captionRequest = useRef(0)
+  const captionEditorRequest = useRef(0)
   const romanRequest = useRef(0)
   const romanTimer = useRef<number | null>(null)
   const captionScriptRef = useRef<CaptionSettings['nepali_script']>('devanagari')
@@ -99,6 +110,7 @@ function AppContent() {
   const activeCaptionSegments =
     captionView === 'translation' && captionTranslation ? captionTranslation : captionSegments
   const captionUploadId = preview?.upload_id ?? null
+  const captionEditorUploadId = preview?.upload_id ?? null
   const captionSourceLanguage =
     captionLanguage === 'auto' ? (captionTranscript?.language ?? 'ne') : captionLanguage
   const { job: streamedJob, connection } = useJobStream(jobId, step === 'processing')
@@ -113,6 +125,25 @@ function AppContent() {
           message: job.status === 'queued' ? 'Cancelling…' : 'Cancelling after the current step…',
         }
       : job
+
+  const captionEditSettings =
+    step === 'caption' ? captionSettings : (job?.settings.captions ?? settings.captions)
+  const captionEditScript: NepaliScript =
+    captionEditorScript ??
+    (step === 'caption'
+      ? captionSettings.nepali_script
+      : (job?.settings.captions.nepali_script ?? settings.captions.nepali_script)) ??
+    'devanagari'
+  const captionEditDuration =
+    captionEditorDuration ??
+    captionTranscript?.duration ??
+    preview?.duration ??
+    job?.video?.duration ??
+    0
+  const captionEditLanguage = step === 'caption' ? captionLanguage : clipLanguage
+  const captionEditQuality = step === 'caption' ? captionQuality : clipQuality
+  const captionEditTask: TranscriptionTask =
+    step === 'caption' ? captionTask : clipTranslate ? 'translate' : 'transcribe'
 
   useEffect(() => {
     document.title =
@@ -293,7 +324,7 @@ function AppContent() {
       setCaptionError(null)
       try {
         const response = await transcribeCaptions(uploadId, language, force, quality, task)
-        if (captionRequest.current !== requestId) return
+        if (captionRequest.current !== requestId) return null
         setCaptionTranscript(response)
         setCaptionSegments(response.segments)
         setCaptionTranslation(null)
@@ -322,9 +353,11 @@ function AppContent() {
         } else {
           toast.info('No speech detected. You can add caption lines manually.')
         }
+        return response.segments
       } catch (error) {
-        if (captionRequest.current !== requestId) return
+        if (captionRequest.current !== requestId) return null
         setCaptionError(errorMessage(error))
+        return null
       } finally {
         if (captionRequest.current === requestId) setCaptionLoading(false)
       }
@@ -356,6 +389,7 @@ function AppContent() {
       const nextScript = next.nepali_script ?? 'devanagari'
       const scriptChanged = captionScriptRef.current !== nextScript
       captionScriptRef.current = nextScript
+      setCaptionEditorScript(nextScript)
       setCaptionSettings(next)
       if (scriptChanged) {
         if (nextScript === 'roman') {
@@ -368,6 +402,24 @@ function AppContent() {
           // Devanagari is the canonical text; stop any pending mirror work.
           cancelRomanisation()
         }
+      }
+    },
+    [cancelRomanisation, captionSegments, scheduleRomanSegments],
+  )
+
+  const changeCaptionScript = useCallback(
+    (value: NepaliScript) => {
+      captionScriptRef.current = value
+      setCaptionEditorScript(value)
+      setCaptionSettings((current) => ({ ...current, nepali_script: value }))
+      setSettings((current) => ({
+        ...current,
+        captions: { ...current.captions, nepali_script: value },
+      }))
+      if (value === 'roman') {
+        if (captionSegments.length) scheduleRomanSegments(captionSegments)
+      } else {
+        cancelRomanisation()
       }
     },
     [cancelRomanisation, captionSegments, scheduleRomanSegments],
@@ -520,6 +572,9 @@ function AppContent() {
     setCaptionView('source')
     setTranslatingCaptions(false)
     setCaptionError(null)
+    setCaptionEditorOpen(false)
+    setCaptionEditorScript(null)
+    setCaptionEditorDuration(null)
     setStep('link')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [cancelRomanisation])
@@ -557,6 +612,10 @@ function AppContent() {
         language: clipLanguage === 'auto' ? null : clipLanguage,
         quality: clipQuality,
         task: clipTranslate ? 'translate' : 'transcribe',
+        // Reuse lines edited in the shared caption editor. A one-pass
+        // translation replaces the spoken words, so only pass source lines
+        // when translation is off.
+        segments: captionSegments.length && !clipTranslate ? captionSegments : undefined,
       })
       if (generationToken.current !== token) {
         // The user navigated away while the request was in flight. Do not
@@ -579,7 +638,7 @@ function AppContent() {
       generationRef.current = false
       setGenerating(false)
     }
-  }, [clipLanguage, clipQuality, clipTranslate, preview, settings, toast])
+  }, [captionSegments, clipLanguage, clipQuality, clipTranslate, preview, settings, toast])
 
   const startCaptionRender = useCallback(async () => {
     if (!preview?.upload_id || generationRef.current) return
@@ -668,13 +727,13 @@ function AppContent() {
   }, [createdJob, restyleParent, startCaptionRender, startRender, toast])
 
   const restyleCurrentJob = useCallback(
-    async (captions: CaptionSettings) => {
+    async (captions: CaptionSettings, segments?: CaptionSegment[]) => {
       if (!job) throw new Error('This export is no longer available.')
       const token = ++generationToken.current
       setGenerationError(null)
       setCancelRequested(false)
       handledStatus.current = null
-      const updated = await restyleJob(job.id, captions)
+      const updated = await restyleJob(job.id, captions, segments)
       if (generationToken.current !== token) {
         void cancelJob(updated.id).catch(() => undefined)
         return
@@ -689,6 +748,155 @@ function AppContent() {
     },
     [job],
   )
+
+  const openCaptionEditor = useCallback(async () => {
+    setCaptionEditorOpen(true)
+    setCaptionEditorError(null)
+    if (captionSegments.length) {
+      setCaptionEditorSnapshot(activeCaptionSegments)
+      if (captionEditScript === 'roman' && !captionRomanSegments && !romanising) {
+        void loadRomanSegments(captionSegments)
+      }
+      return
+    }
+    const requestId = ++captionEditorRequest.current
+    setCaptionEditorLoading(true)
+    try {
+      if (job?.id) {
+        // A finished export already has the words that were burned in. Load
+        // those so a reloaded tab can edit the real lines without waiting for
+        // another transcription.
+        const response = await getJobCaptions(job.id)
+        if (requestId !== captionEditorRequest.current) return
+        setCaptionEditorDuration(response.duration)
+        setCaptionSegments(response.segments)
+        setCaptionEditorSnapshot(response.segments)
+        if (response.segments.length && captionEditScript === 'roman') {
+          void loadRomanSegments(response.segments)
+        }
+        if (!response.segments.length) {
+          toast.info('No caption lines were found for this export. You can add them manually.')
+        }
+      } else if (preview?.upload_id) {
+        setCaptionEditorDuration(preview.duration)
+        const loaded = await loadCaptionTranscript(
+          preview.upload_id,
+          captionEditLanguage,
+          false,
+          captionEditQuality,
+          captionEditTask,
+        )
+        if (requestId === captionEditorRequest.current && loaded) {
+          setCaptionEditorSnapshot(loaded)
+        }
+      } else {
+        setCaptionEditorError('Choose a video before editing captions.')
+      }
+    } catch (error) {
+      if (requestId === captionEditorRequest.current) setCaptionEditorError(errorMessage(error))
+    } finally {
+      if (requestId === captionEditorRequest.current) setCaptionEditorLoading(false)
+    }
+  }, [
+    activeCaptionSegments,
+    captionEditLanguage,
+    captionEditQuality,
+    captionEditScript,
+    captionEditTask,
+    captionRomanSegments,
+    captionSegments,
+    job,
+    loadCaptionTranscript,
+    loadRomanSegments,
+    preview,
+    romanising,
+    toast,
+  ])
+
+  const closeCaptionEditor = useCallback(() => {
+    if (
+      captionEditorSnapshot &&
+      JSON.stringify(captionEditorSnapshot) !== JSON.stringify(activeCaptionSegments)
+    ) {
+      updateActiveCaptionSegments(captionEditorSnapshot)
+    }
+    setCaptionEditorSnapshot(null)
+    setCaptionEditorOpen(false)
+    setCaptionEditorError(null)
+  }, [activeCaptionSegments, captionEditorSnapshot, updateActiveCaptionSegments])
+
+  // Keep the snapshot in sync when the drawer itself triggers a fresh
+  // transcription, so Cancel still restores the lines the user first saw.
+  const transcribeForCaptionEditor = useCallback(async () => {
+    if (!captionEditorUploadId) return
+    const requestId = ++captionEditorRequest.current
+    setCaptionEditorLoading(true)
+    setCaptionEditorError(null)
+    try {
+      const loaded = await loadCaptionTranscript(
+        captionEditorUploadId,
+        captionEditLanguage,
+        true,
+        captionEditQuality,
+        captionEditTask,
+      )
+      if (requestId === captionEditorRequest.current && loaded) {
+        setCaptionEditorSnapshot(loaded)
+      }
+    } finally {
+      if (requestId === captionEditorRequest.current) setCaptionEditorLoading(false)
+    }
+  }, [
+    captionEditLanguage,
+    captionEditQuality,
+    captionEditTask,
+    captionEditorUploadId,
+    loadCaptionTranscript,
+  ])
+
+  const applyCaptionEdits = useCallback(async () => {
+    if (step === 'processing') {
+      closeCaptionEditor()
+      return
+    }
+    if (step === 'results' && job) {
+      setCaptionEditorApplying(true)
+      setCaptionEditorError(null)
+      try {
+        await restyleCurrentJob(
+          {
+            ...job.settings.captions,
+            // Editing lines on a captions-off export means the user wants
+            // them burned in on the re-render.
+            enabled: true,
+            nepali_script: captionEditScript,
+          },
+          activeCaptionSegments,
+        )
+        setCaptionEditorSnapshot(null)
+        setCaptionEditorOpen(false)
+      } catch (error) {
+        const message = errorMessage(error)
+        setCaptionEditorError(message)
+        toast.error(message)
+      } finally {
+        setCaptionEditorApplying(false)
+      }
+      return
+    }
+    // Caption studio edits are live; the Settings screen passes them to the
+    // next render.
+    setCaptionEditorSnapshot(null)
+    setCaptionEditorOpen(false)
+  }, [
+    activeCaptionSegments,
+    captionEditScript,
+    closeCaptionEditor,
+    job,
+    restyleCurrentJob,
+    step,
+    toast,
+  ])
 
   const backToPreviousExport = useCallback(() => {
     if (!restyleParent) return
@@ -749,6 +957,9 @@ function AppContent() {
     setCaptionView('source')
     setTranslatingCaptions(false)
     setCaptionError(null)
+    setCaptionEditorOpen(false)
+    setCaptionEditorScript(null)
+    setCaptionEditorDuration(null)
     setCancelling(false)
     handledStatus.current = null
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -776,6 +987,7 @@ function AppContent() {
           captionFlow={
             step === 'caption' || createdJob?.mode === 'captions' || job?.mode === 'captions'
           }
+          onEditCaptions={step === 'link' ? undefined : () => void openCaptionEditor()}
         />
         <main
           id="main"
@@ -887,6 +1099,7 @@ function AppContent() {
                   onGenerate={startRender}
                   generating={generating}
                   generationError={generationError}
+                  onEditCaptions={() => void openCaptionEditor()}
                 />
               ) : null}
 
@@ -912,6 +1125,7 @@ function AppContent() {
                   canRetry={Boolean(preview) || Boolean(restyleParent)}
                   onStartOver={startOver}
                   onBackToPrevious={restyleParent ? backToPreviousExport : undefined}
+                  onEditCaptions={() => void openCaptionEditor()}
                   generating={generating}
                 />
               ) : null}
@@ -919,9 +1133,11 @@ function AppContent() {
               {step === 'results' && job ? (
                 <ResultsStep
                   job={job}
+                  captionSegments={captionSegments}
                   onNewProject={startOver}
                   onEditSettings={editSettings}
                   onRestyle={restyleCurrentJob}
+                  onEditCaptions={() => void openCaptionEditor()}
                   canEditSettings={Boolean(preview)}
                 />
               ) : null}
@@ -931,6 +1147,46 @@ function AppContent() {
 
         <SiteFooter />
       </div>
+
+      <CaptionEditorDrawer
+        open={captionEditorOpen}
+        onClose={closeCaptionEditor}
+        segments={activeCaptionSegments}
+        duration={captionEditDuration}
+        onChange={updateActiveCaptionSegments}
+        script={captionEditScript}
+        onScriptChange={changeCaptionScript}
+        devanagariFont={captionEditSettings.secondary_font}
+        romanSegments={captionRomanSegments}
+        romanising={romanising}
+        loading={captionEditorLoading || captionLoading}
+        loadingText={captionLoading ? 'Listening for speech…' : 'Loading caption lines…'}
+        error={captionEditorError ?? (activeCaptionSegments.length ? null : captionError)}
+        onTranscribe={
+          step !== 'processing' && captionEditorUploadId ? transcribeForCaptionEditor : undefined
+        }
+        transcribing={captionLoading || captionEditorLoading}
+        canTranscribe={step !== 'processing' && Boolean(captionEditorUploadId)}
+        notice={
+          step === 'processing'
+            ? 'This export is already rendering. Review or edit the lines now; apply them when the export finishes.'
+            : step === 'caption'
+              ? 'Press Done to keep these edits in the Caption studio.'
+              : step === 'results'
+                ? 'Re-rendering keeps the same cuts and style; only the caption text and script change.'
+                : 'These lines will be used by the next render.'
+        }
+        applyLabel={
+          step === 'results'
+            ? 'Re-render with these lines'
+            : step === 'caption'
+              ? 'Done'
+              : 'Use these lines'
+        }
+        onApply={step === 'processing' ? undefined : () => void applyCaptionEdits()}
+        applying={captionEditorApplying}
+        applyDisabled={step === 'results' && !activeCaptionSegments.length}
+      />
     </div>
   )
 }

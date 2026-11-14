@@ -37,6 +37,10 @@ interface CaptionPreviewProps {
   /** When provided, the overlay reads the video clock directly so playback
    * never has to re-render the surrounding studio at frame rate. */
   video?: RefObject<HTMLVideoElement | null>
+  /** Pixel size of the video the captions are burned onto. Font size and
+   * offsets are scaled from these, exactly like the ASS renderer. */
+  videoWidth?: number
+  videoHeight?: number
 }
 
 interface CaptionGroup {
@@ -206,19 +210,21 @@ function usePreviewClock(active: boolean): number {
   return clock
 }
 
-function useWidth(ref: RefObject<HTMLElement | null>): number {
-  const [width, setWidth] = useState(0)
+function useSize(ref: RefObject<HTMLElement | null>): { width: number; height: number } {
+  const [size, setSize] = useState({ width: 0, height: 0 })
   useEffect(() => {
     const element = ref.current
     if (!element) return
+    const update = (width: number, height: number) => setSize({ width, height })
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setWidth(entry.contentRect.width)
+      if (entry) update(entry.contentRect.width, entry.contentRect.height)
     })
     observer.observe(element)
-    setWidth(element.getBoundingClientRect().width)
+    const bounds = element.getBoundingClientRect()
+    update(bounds.width, bounds.height)
     return () => observer.disconnect()
   }, [ref])
-  return width
+  return size
 }
 
 function useVideoClock(video: RefObject<HTMLVideoElement | null> | undefined): number {
@@ -253,10 +259,12 @@ export function CaptionPreview({
   className,
   stageRef,
   video,
+  videoWidth,
+  videoHeight,
 }: CaptionPreviewProps) {
   const ownRef = useRef<HTMLDivElement>(null)
   const observedRef = stageRef ?? ownRef
-  const width = useWidth(observedRef)
+  const { width: stageWidth, height: stageHeight } = useSize(observedRef)
   const loopTime = usePreviewClock(loop && !paused)
   const videoTime = useVideoClock(video)
   const currentTime = loop ? loopTime : video ? videoTime : (time ?? 0)
@@ -290,9 +298,15 @@ export function CaptionPreview({
       ? captionFontForText(settings.font, secondary?.text ?? '')
       : (settings.secondary_font ?? 'Mukta'),
   )
-  const resolvedFontSize =
-    fontSize ??
-    Math.max(12, Math.min(72, (settings.font_size / 1080) * Math.max(220, width || 320)))
+  // The ASS renderer scales type by the video's limiting dimension:
+  // min(output width, output height) / 1080. Match that from the rendered
+  // stage instead of guessing from width alone, so portrait, square, and
+  // landscape previews all burn at the same relative size.
+  const stageScale =
+    videoWidth && videoHeight && stageWidth > 0 && stageHeight > 0
+      ? Math.min(stageWidth / videoWidth, stageHeight / videoHeight)
+      : (stageWidth || 320) / 1080
+  const resolvedFontSize = fontSize ?? Math.max(1, settings.font_size * Math.max(0.01, stageScale))
   const scale = resolvedFontSize / Math.max(1, settings.font_size)
   const outline = settings.outline_width * scale
   const shadow = settings.shadow * scale
@@ -320,7 +334,7 @@ export function CaptionPreview({
     fontWeight: captionFontWeight(settings.font_style),
     fontStyle: captionFontStyle(settings.font_style),
     fontSize: `${resolvedFontSize}px`,
-    lineHeight: 1.12,
+    lineHeight: 1.2,
     color: settings.color,
     letterSpacing: `${letterSpacing}px`,
     textTransform:
@@ -338,10 +352,9 @@ export function CaptionPreview({
     fontWeight: captionFontWeight(settings.font_style),
     fontStyle: captionFontStyle(settings.font_style),
     fontSize: `${resolvedFontSize * 0.8}px`,
-    lineHeight: 1.12,
+    lineHeight: 1.2,
     color: settings.color,
     letterSpacing: `${letterSpacing}px`,
-    marginBottom: '0.06em',
     WebkitTextStroke: outline > 0 ? `${outline * 0.8}px rgba(0,0,0,0.74)` : undefined,
     paintOrder: 'stroke fill',
     textShadow: shadow > 0 ? `0 ${shadow}px ${shadow * 1.5}px rgba(0,0,0,0.62)` : undefined,
@@ -431,7 +444,7 @@ export function CaptionPreview({
             position: 'absolute',
             left: '50%',
             top,
-            width: '86%',
+            width: '81%',
             '--caption-anchor-y': anchorY,
             transform: 'translate(-50%, var(--caption-anchor-y))',
             textAlign: 'center',

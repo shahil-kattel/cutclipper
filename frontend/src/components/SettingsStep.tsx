@@ -30,6 +30,7 @@ import type {
 import {
   ASPECT_LABELS,
   DEFAULT_SETTINGS,
+  aspectPixelSize,
   cn,
   formatDuration,
   formatDurationLong,
@@ -54,6 +55,7 @@ interface SettingsStepProps {
   onGenerate: () => void
   generating: boolean
   generationError: string | null
+  onEditCaptions?: () => void
 }
 
 const CAPTION_LANGUAGES = [
@@ -142,6 +144,7 @@ export function SettingsStep({
   onGenerate,
   generating,
   generationError,
+  onEditCaptions,
 }: SettingsStepProps) {
   const update = (patch: Partial<ClipSettings>) => {
     onSettingsChange({ ...settings, ...patch })
@@ -704,11 +707,23 @@ export function SettingsStep({
                         stay in English. Applies when Nepali is detected.
                       </p>
                     </div>
-                    <NepaliScriptToggle
-                      value={settings.captions.nepali_script ?? 'devanagari'}
-                      onChange={(nepali_script) => updateCaptions({ nepali_script })}
-                      devanagariFont={settings.captions.secondary_font}
-                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {onEditCaptions ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={Captions}
+                          onClick={onEditCaptions}
+                        >
+                          Edit caption text
+                        </Button>
+                      ) : null}
+                      <NepaliScriptToggle
+                        value={settings.captions.nepali_script ?? 'devanagari'}
+                        onChange={(nepali_script) => updateCaptions({ nepali_script })}
+                        devanagariFont={settings.captions.secondary_font}
+                      />
+                    </div>
                   </div>
                 ) : null}
                 <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />
@@ -988,6 +1003,7 @@ function ModeButton({
 
 function PreviewPhone({ preview, settings }: { preview: PreviewResponse; settings: ClipSettings }) {
   const [imageFailed, setImageFailed] = useState(false)
+  const outputSize = aspectPixelSize(settings.aspect_ratio)
 
   return (
     <div className="paper-card taped taped-pink rotate-[0.8deg] p-3 pb-2">
@@ -1034,7 +1050,13 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
           </div>
 
           {settings.captions.enabled ? (
-            <CaptionPreview settings={settings.captions} loop className="absolute inset-0" />
+            <CaptionPreview
+              settings={settings.captions}
+              loop
+              videoWidth={outputSize.width}
+              videoHeight={outputSize.height}
+              className="absolute inset-0"
+            />
           ) : null}
 
           <div className="absolute inset-x-0 bottom-0 flex items-center justify-between px-3 pb-2.5">

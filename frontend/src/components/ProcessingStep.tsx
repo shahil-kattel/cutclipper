@@ -139,6 +139,7 @@ interface ProcessingStepProps {
   canRetry?: boolean
   onStartOver: () => void
   onBackToPrevious?: () => void
+  onEditCaptions?: () => void
 }
 
 export function ProcessingStep({
@@ -152,6 +153,7 @@ export function ProcessingStep({
   canRetry = true,
   onStartOver,
   onBackToPrevious,
+  onEditCaptions,
 }: ProcessingStepProps) {
   const [elapsed, setElapsed] = useState(0)
   const terminalFailure = job?.status === 'failed' || job?.status === 'cancelled'
@@ -299,6 +301,17 @@ export function ProcessingStep({
               />
             </div>
             <div className="mt-5 w-full border-t border-dashed border-ink/20 pt-4">
+              {onEditCaptions && captionsOn ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onEditCaptions}
+                  icon={Captions}
+                  className="mb-2 w-full text-ink-soft hover:text-ink"
+                >
+                  Edit caption text
+                </Button>
+              ) : null}
               {job?.can_cancel ? (
                 <Button
                   variant="ghost"

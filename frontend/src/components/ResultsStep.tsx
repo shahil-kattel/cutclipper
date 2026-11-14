@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft,
+  Captions,
   Check,
   Download,
   ExternalLink,
@@ -17,8 +18,8 @@ import {
   VolumeX,
   Zap,
 } from 'lucide-react'
-import type { CaptionSettings, Clip, Job } from '../types/api'
-import { assetUrl, downloadAllUrl } from '../lib/api'
+import type { CaptionPosition, CaptionSegment, CaptionSettings, Clip, Job } from '../types/api'
+import { assetUrl, downloadAllUrl, errorMessage } from '../lib/api'
 import {
   clamp,
   formatBytes,
@@ -30,13 +31,18 @@ import {
 import { Button, Pill } from './ui'
 import { useToast } from '../hooks/useToast'
 import { CaptionExportStudio } from './CaptionExportStudio'
+import { CaptionPreview } from './CaptionPreview'
 
 interface ResultsStepProps {
   job: Job
   onNewProject: () => void
   onEditSettings: () => void
-  onRestyle: (captions: CaptionSettings) => Promise<void>
+  onRestyle: (captions: CaptionSettings, segments?: CaptionSegment[]) => Promise<void>
   canEditSettings?: boolean
+  /** Source-language lines from the editor, used for a faithful style preview. */
+  captionSegments?: CaptionSegment[]
+  /** Opens the shared caption editor (text, timing, and script). */
+  onEditCaptions?: () => void
 }
 
 export function ResultsStep({
@@ -45,11 +51,24 @@ export function ResultsStep({
   onEditSettings,
   onRestyle,
   canEditSettings = true,
+  captionSegments,
+  onEditCaptions,
 }: ResultsStepProps) {
   const toast = useToast()
   const [editingCaptions, setEditingCaptions] = useState(false)
+  const [captionDraft, setCaptionDraft] = useState<CaptionSettings>(() =>
+    structuredClone(job.settings.captions),
+  )
+  const [previewCaptionSegments, setPreviewCaptionSegments] = useState<CaptionSegment[]>(
+    captionSegments ?? [],
+  )
   const [previewClipId, setPreviewClipId] = useState<string | null>(null)
   const previewRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCaptionDraft(structuredClone(job.settings.captions))
+    setPreviewCaptionSegments(captionSegments ?? [])
+  }, [job.id, job.settings.captions, captionSegments])
   const clips = [...job.clips].sort((a, b) => a.index - b.index)
   const totalSize = clips.reduce((sum, clip) => sum + clip.file_size, 0)
   const allUrl = downloadAllUrl(job)
@@ -119,6 +138,11 @@ export function ResultsStep({
           </p>
         </div>
         <div className="grid w-full grid-cols-2 gap-2.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center lg:justify-end">
+          {onEditCaptions ? (
+            <Button variant="secondary" size="sm" onClick={onEditCaptions} icon={Captions}>
+              Edit caption text
+            </Button>
+          ) : null}
           {!editingCaptions ? (
             <Button
               variant="secondary"
@@ -190,17 +214,40 @@ export function ResultsStep({
             activeClip={activePreviewClip}
             captionMode={captionMode}
             onSelect={setPreviewClipId}
+            captionEditor={
+              (captionMode || job.settings.captions.enabled) && !editingCaptions ? (
+                <CaptionQuickEdit
+                  job={job}
+                  segments={previewCaptionSegments}
+                  draft={captionDraft}
+                  onDraftChange={setCaptionDraft}
+                  onRestyle={onRestyle}
+                  onEditLines={() => onEditCaptions?.()}
+                  onOpenFull={() => {
+                    setEditingCaptions(true)
+                    window.requestAnimationFrame(() => {
+                      document
+                        .getElementById('caption-export-studio')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    })
+                  }}
+                />
+              ) : undefined
+            }
           />
         </div>
       ) : null}
 
       {editingCaptions ? (
-        <div className="mt-6">
+        <div id="caption-export-studio" className="mt-6 scroll-mt-24">
           <CaptionExportStudio
             key={job.id}
             job={job}
+            segments={previewCaptionSegments}
+            initialCaptions={captionDraft}
             onApply={onRestyle}
             onClose={() => setEditingCaptions(false)}
+            onEditText={onEditCaptions}
           />
         </div>
       ) : null}
@@ -282,11 +329,13 @@ function ClipPreview({
   activeClip,
   captionMode,
   onSelect,
+  captionEditor,
 }: {
   clips: Clip[]
   activeClip: Clip
   captionMode: boolean
   onSelect: (clipId: string) => void
+  captionEditor?: ReactNode
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -548,6 +597,8 @@ function ClipPreview({
             <PreviewStat label="File size" value={formatBytes(activeClip.file_size)} />
           </div>
 
+          {captionEditor}
+
           {clips.length > 1 ? (
             <div>
               <p className="text-[8.5px] font-bold uppercase tracking-[0.16em] text-ink-soft">
@@ -601,6 +652,186 @@ function ClipPreview({
         </div>
       </div>
     </motion.section>
+  )
+}
+
+const QUICK_POSITIONS: Array<{ value: CaptionPosition; label: string }> = [
+  { value: 'top', label: 'Top' },
+  { value: 'middle', label: 'Middle' },
+  { value: 'bottom', label: 'Bottom' },
+]
+
+function CaptionQuickEdit({
+  job,
+  segments,
+  draft,
+  onDraftChange,
+  onRestyle,
+  onEditLines,
+  onOpenFull,
+}: {
+  job: Job
+  segments?: CaptionSegment[]
+  draft: CaptionSettings
+  onDraftChange: (captions: CaptionSettings) => void
+  onRestyle: (captions: CaptionSettings, segments?: CaptionSegment[]) => Promise<void>
+  onEditLines: () => void
+  onOpenFull: () => void
+}) {
+  const [applying, setApplying] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const clip = job.clips[0]
+  const previewWidth = clip?.width ?? 1080
+  const previewHeight = clip?.height ?? 1920
+  const previewSegment = segments?.find((segment) => segment.text.trim())
+  const previewTime = previewSegment
+    ? Math.min(
+        previewSegment.start + 0.01,
+        Math.max(previewSegment.start, previewSegment.end - 0.001),
+      )
+    : undefined
+  const changed = JSON.stringify(draft) !== JSON.stringify(job.settings.captions)
+
+  const update = (patch: Partial<CaptionSettings>) => onDraftChange({ ...draft, ...patch })
+
+  const apply = async () => {
+    if (!changed || applying) return
+    setApplying(true)
+    setError(null)
+    try {
+      await onRestyle(draft)
+    } catch (err) {
+      setError(errorMessage(err))
+      setApplying(false)
+    }
+  }
+
+  const sizeProgress = ((draft.font_size - 32) / (160 - 32)) * 100
+
+  return (
+    <div className="rounded-xl border-[1.5px] border-ink bg-paper-soft p-3 shadow-[2px_3px_0_#211d19]">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.16em] text-ink-soft">
+            <Palette className="h-3 w-3 text-tomato" aria-hidden="true" />
+            Caption style
+          </p>
+          <p className="mt-1 text-[11px] font-medium leading-4 text-ink">
+            Tune the size and placement here, then re-render.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={onEditLines}
+            className="rounded-md border border-ink/25 bg-paper px-2 py-1 text-[9px] font-bold text-ink-soft transition hover:border-ink hover:bg-mustard-soft hover:text-ink"
+          >
+            Edit lines
+          </button>
+          <button
+            type="button"
+            onClick={onOpenFull}
+            className="rounded-md border border-ink/25 bg-paper px-2 py-1 text-[9px] font-bold text-ink-soft transition hover:border-ink hover:bg-mustard-soft hover:text-ink"
+          >
+            All styles
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-[8.5rem_minmax(0,1fr)]">
+        <div
+          className="relative mx-auto w-full max-w-[8.5rem] overflow-hidden rounded-lg border-[1.5px] border-ink bg-[#171411]"
+          style={{ aspectRatio: `${previewWidth} / ${previewHeight}` }}
+          aria-label="Caption style preview"
+        >
+          {job.video?.thumbnail_url ? (
+            <img
+              src={assetUrl(job.video.thumbnail_url)}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover opacity-80"
+            />
+          ) : (
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(242,190,79,0.34),transparent_52%),radial-gradient(circle_at_78%_72%,rgba(110,121,200,0.28),transparent_48%),linear-gradient(160deg,#373026,#1d1915)]" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/60" />
+          <CaptionPreview
+            settings={{ ...draft, enabled: true }}
+            segments={previewSegment ? [previewSegment] : undefined}
+            words={previewSegment?.words}
+            time={previewTime}
+            loop={!previewSegment}
+            videoWidth={previewWidth}
+            videoHeight={previewHeight}
+            className="absolute inset-0"
+          />
+        </div>
+
+        <div className="min-w-0 space-y-2.5">
+          <div>
+            <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-ink-soft">
+              <label htmlFor="result-caption-size">Caption size</label>
+              <span className="tabular-nums text-ink">{draft.font_size}px</span>
+            </div>
+            <input
+              id="result-caption-size"
+              type="range"
+              min={32}
+              max={160}
+              step={1}
+              value={draft.font_size}
+              onChange={(event) => update({ font_size: Number(event.target.value) })}
+              className="range mt-1.5 w-full"
+              style={
+                {
+                  '--range-progress': `${sizeProgress}%`,
+                  '--accent': 'var(--tomato)',
+                } as CSSProperties
+              }
+            />
+          </div>
+
+          <div>
+            <p className="text-[10px] font-semibold text-ink-soft">Position</p>
+            <div className="mt-1.5 grid grid-cols-3 gap-1">
+              {QUICK_POSITIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={draft.position === option.value}
+                  onClick={() => update({ position: option.value })}
+                  className={`h-7 rounded-md border text-[9.5px] font-semibold transition ${
+                    draft.position === option.value
+                      ? 'border-ink bg-periwinkle-soft text-ink shadow-[1px_1px_0_#211d19]'
+                      : 'border-ink/20 bg-paper text-ink-soft hover:border-ink hover:text-ink'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+            <p className="max-w-[11rem] text-[9px] leading-4 text-ink-faint">
+              {changed ? 'Preview updates live.' : 'Change size or position to enable.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => void apply()}
+              disabled={!changed || applying}
+              className="inline-flex h-8 items-center justify-center rounded-md border-[1.5px] border-ink bg-tomato px-2.5 text-[10px] font-semibold text-paper-soft shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-tomato-bright active:translate-y-px active:shadow-none disabled:cursor-not-allowed disabled:border-ink/15 disabled:bg-paper-deep disabled:text-ink-faint disabled:shadow-none"
+            >
+              {applying ? 'Starting render…' : 'Apply & re-render'}
+            </button>
+          </div>
+          {error ? (
+            <p role="alert" className="text-[9.5px] leading-4 text-tomato">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
   )
 }
 

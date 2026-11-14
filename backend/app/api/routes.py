@@ -26,6 +26,7 @@ from app.schemas import (
     ClipSettings,
     CreateJobRequest,
     HealthResponse,
+    JobCaptionsResponse,
     JobOut,
     PreviewRequest,
     PreviewResponse,
@@ -390,8 +391,25 @@ async def restyle_captions(
     request: Request,
 ) -> JobOut:
     manager = _manager(request)
-    record = await manager.create_restyle_job(job_id, payload.captions)
+    record = await manager.create_restyle_job(
+        job_id,
+        payload.captions,
+        segments=payload.segments,
+        secondary_segments=payload.secondary_segments,
+    )
     return manager.snapshot(record.id)
+
+
+@router.get("/jobs/{job_id}/captions", response_model=JobCaptionsResponse)
+async def job_captions(job_id: str, request: Request) -> JobCaptionsResponse:
+    manager = _manager(request)
+    duration, segments, words = manager.caption_lines(job_id)
+    return JobCaptionsResponse(
+        job_id=job_id,
+        duration=duration,
+        segments=segments,
+        words=[TranscriptWordOut(start=word.start, end=word.end, text=word.text) for word in words],
+    )
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)
