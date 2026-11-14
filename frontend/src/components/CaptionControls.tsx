@@ -466,6 +466,54 @@ export function CaptionStyleControls({
         />
       </div>
 
+      <div className="space-y-2.5 rounded-xl border border-ink/20 bg-paper p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-[11.5px] font-semibold text-ink">Caption density</p>
+            <p className="mt-0.5 text-[9.5px] leading-4 text-ink-soft">
+              Shorter groups are easier to read and keep the frame uncluttered.
+            </p>
+          </div>
+          <span className="shrink-0 rounded border border-ink/20 bg-paper-soft px-1.5 py-0.5 text-[8.5px] font-bold tabular-nums text-ink-soft">
+            {settings.max_words} words · {settings.max_lines}{' '}
+            {settings.max_lines === 1 ? 'line' : 'lines'}
+          </span>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <RangeField
+            label="Words per caption"
+            value={settings.max_words}
+            min={3}
+            max={15}
+            step={1}
+            display={`${settings.max_words}`}
+            onValueChange={(value) => onChange({ max_words: value })}
+            tone="mustard"
+          />
+          <div className="space-y-1.5">
+            <p className="text-[11.5px] font-medium text-ink-soft">Lines per caption</p>
+            <div role="group" aria-label="Lines per caption" className="grid grid-cols-3 gap-1.5">
+              {[1, 2, 3].map((lines) => (
+                <button
+                  key={lines}
+                  type="button"
+                  aria-pressed={settings.max_lines === lines}
+                  onClick={() => onChange({ max_lines: lines })}
+                  className={cn(
+                    'h-8 rounded-md border text-[10.5px] font-semibold transition',
+                    settings.max_lines === lines
+                      ? 'border-ink bg-mustard-soft text-ink shadow-[1px_1px_0_#211d19]'
+                      : 'border-ink/20 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                  )}
+                >
+                  {lines}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-2">
         <ColorControl
           label="Text color"

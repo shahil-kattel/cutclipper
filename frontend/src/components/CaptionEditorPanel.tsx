@@ -15,7 +15,7 @@ import {
   WandSparkles,
   X,
 } from 'lucide-react'
-import type { CaptionSegment, NepaliScript, TranscriptWord } from '../types/api'
+import type { CaptionSegment, CaptionSettings, NepaliScript, TranscriptWord } from '../types/api'
 import { cn } from '../lib/utils'
 import { useToast } from '../hooks/useToast'
 import { Button } from './ui'
@@ -504,6 +504,12 @@ export function CaptionEditorDrawer({
   script,
   onScriptChange,
   devanagariFont,
+  captionSettings,
+  onCaptionSettingsChange,
+  englishSegments,
+  translatingEnglish = false,
+  onTranslateEnglish,
+  onDownloadEnglishSrt,
   romanSegments,
   romanising,
   loading = false,
@@ -531,6 +537,12 @@ export function CaptionEditorDrawer({
   script: NepaliScript
   onScriptChange?: (script: NepaliScript) => void
   devanagariFont?: string
+  captionSettings?: CaptionSettings
+  onCaptionSettingsChange?: (captions: CaptionSettings) => void
+  englishSegments?: CaptionSegment[] | null
+  translatingEnglish?: boolean
+  onTranslateEnglish?: () => void | Promise<unknown>
+  onDownloadEnglishSrt?: () => void
   romanSegments?: CaptionSegment[] | null
   romanising?: boolean
   loading?: boolean
@@ -630,6 +642,94 @@ export function CaptionEditorDrawer({
                     busy={romanising}
                     devanagariFont={devanagariFont}
                   />
+                </div>
+              ) : null}
+
+              {captionSettings && onCaptionSettingsChange ? (
+                <div className="rounded-xl border-[1.5px] border-ink/25 bg-paper-soft px-3 py-2.5">
+                  <p className="text-[11.5px] font-semibold text-ink">Caption density</p>
+                  <p className="mt-0.5 text-[10px] leading-4 text-ink-soft">
+                    Fewer words and lines keep each caption readable on screen.
+                  </p>
+                  <div className="mt-2.5 grid grid-cols-2 gap-2">
+                    <label className="space-y-1 text-[10px] font-medium text-ink-soft">
+                      <span>Words per caption</span>
+                      <select
+                        value={captionSettings.max_words}
+                        onChange={(event) =>
+                          onCaptionSettingsChange({
+                            ...captionSettings,
+                            max_words: Number(event.target.value),
+                          })
+                        }
+                        className="paper-select h-8 w-full text-[11px]"
+                      >
+                        {Array.from({ length: 13 }, (_, index) => index + 3).map((value) => (
+                          <option key={value} value={value}>
+                            {value} words
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-[10px] font-medium text-ink-soft">
+                      <span>Lines per caption</span>
+                      <select
+                        value={captionSettings.max_lines}
+                        onChange={(event) =>
+                          onCaptionSettingsChange({
+                            ...captionSettings,
+                            max_lines: Number(event.target.value),
+                          })
+                        }
+                        className="paper-select h-8 w-full text-[11px]"
+                      >
+                        {[1, 2, 3].map((value) => (
+                          <option key={value} value={value}>
+                            {value} {value === 1 ? 'line' : 'lines'}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+
+              {onTranslateEnglish ? (
+                <div className="rounded-xl border-[1.5px] border-ink/25 bg-paper-soft px-3 py-2.5">
+                  <p className="text-[11.5px] font-semibold text-ink">English subtitles</p>
+                  <p className="mt-0.5 text-[10px] leading-4 text-ink-soft">
+                    Translate the current Nepali lines and keep an English track with the same
+                    timings.
+                  </p>
+                  {englishSegments?.length ? (
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <span className="rounded border border-teal/40 bg-teal-soft px-2 py-1 text-[9.5px] font-semibold text-teal">
+                        English ready · {englishSegments.length} lines
+                      </span>
+                      {onDownloadEnglishSrt ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={FileText}
+                          onClick={onDownloadEnglishSrt}
+                        >
+                          English .SRT
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <Button
+                      className="mt-2"
+                      variant="secondary"
+                      size="sm"
+                      icon={Languages}
+                      loading={translatingEnglish}
+                      disabled={!segments.length || translatingEnglish}
+                      onClick={() => void onTranslateEnglish()}
+                    >
+                      Translate &amp; add English
+                    </Button>
+                  )}
                 </div>
               ) : null}
 

@@ -178,6 +178,8 @@ def _make_groups(
     target_width: int,
     letter_spacing: float = 0.0,
     word_spacing: float = 0.0,
+    max_words: int = _MAX_GROUP_WORDS,
+    max_lines: int = _MAX_LINES,
 ) -> list[_Group]:
     available_width = target_width * (1 - 2 * _SAFE_SIDE_FRACTION)
     groups: list[_Group] = []
@@ -203,7 +205,7 @@ def _make_groups(
             gap = word.start - previous.end
             sentence_ended = bool(_SENTENCE_END_RE.search(previous.text))
             too_long = word.end - group_start > _MAX_GROUP_SECONDS
-            too_many = sum(len(line) for line in lines) >= _MAX_GROUP_WORDS
+            too_many = sum(len(line) for line in lines) >= max_words
             if gap > 0.72 or sentence_ended or too_long or too_many:
                 flush()
                 group_start = word.start
@@ -222,14 +224,14 @@ def _make_groups(
             )
             > available_width
         ):
-            if len(lines) >= _MAX_LINES:
+            if len(lines) >= max_lines:
                 flush()
                 group_start = word.start
             else:
                 lines.append([])
         if not lines:
             lines = [[]]
-        if not lines[-1] and len(lines) > _MAX_LINES:
+        if not lines[-1] and len(lines) > max_lines:
             flush()
             group_start = word.start
         lines[-1].append(word)
@@ -666,6 +668,7 @@ def _secondary_line_prefix(
     secondary_font: str,
     primary_font: str,
     primary_font_size: int,
+    max_lines: int = _SECONDARY_MAX_LINES,
 ) -> tuple[str, int]:
     """Wrap the Nepali line that belongs above this caption group.
 
@@ -688,7 +691,7 @@ def _secondary_line_prefix(
         if (
             lines[-1]
             and _line_width(projected, font_size) > available_width
-            and len(lines) < _SECONDARY_MAX_LINES
+            and len(lines) < max_lines
         ):
             lines.append([ref])
         else:
@@ -760,6 +763,8 @@ def build_ass(
         target_width=width,
         letter_spacing=letter_spacing,
         word_spacing=word_spacing,
+        max_words=settings.max_words,
+        max_lines=settings.max_lines,
     )
     x, y, alignment = _position(settings.position, width, height)
     word_style = settings.word_style
@@ -852,6 +857,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             secondary_font=secondary_font,
             primary_font=group_font,
             primary_font_size=font_size,
+            max_lines=settings.max_lines,
         )
         leading_height = secondary_lines * secondary_font_size * 1.2
 

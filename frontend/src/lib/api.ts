@@ -151,12 +151,13 @@ export async function restyleJob(
   jobId: string,
   captions: CaptionSettings,
   segments?: CaptionSegment[],
+  secondarySegments?: CaptionSegment[],
 ): Promise<Job> {
   return request<Job>(
     `/jobs/${encodeURIComponent(jobId)}/restyle`,
     {
       method: 'POST',
-      body: JSON.stringify({ captions, segments }),
+      body: JSON.stringify({ captions, segments, secondary_segments: secondarySegments }),
     },
     120_000,
   )
@@ -164,6 +165,22 @@ export async function restyleJob(
 
 export async function getJobCaptions(jobId: string): Promise<JobCaptionsResponse> {
   return request<JobCaptionsResponse>(`/jobs/${encodeURIComponent(jobId)}/captions`, {}, 30_000)
+}
+
+export async function translateJobCaptions(
+  jobId: string,
+  segments?: CaptionSegment[],
+  quality?: TranscriptionQuality | null,
+  language = 'ne',
+): Promise<TranslationResponse> {
+  return request<TranslationResponse>(
+    `/jobs/${encodeURIComponent(jobId)}/translate`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ segments, quality, language }),
+    },
+    120_000,
+  )
 }
 
 export async function transcribeCaptions(

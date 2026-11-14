@@ -681,6 +681,23 @@ def test_latin_text_keeps_the_requested_font(tmp_path: Path) -> None:
     assert "Style: CutClipper,Inter,80" in output.read_text(encoding="utf-8")
 
 
+def test_caption_density_limits_words_and_lines() -> None:
+    from app.pipeline import captions as caption_module
+
+    words = [Word(index * 0.5, index * 0.5 + 0.4, f"word{index}") for index in range(9)]
+    groups = caption_module._make_groups(
+        words,
+        font_size=40,
+        target_width=1080,
+        max_words=3,
+        max_lines=1,
+    )
+    assert groups
+    for group in groups:
+        assert sum(len(line) for line in group.lines) <= 3
+        assert len(group.lines) == 1
+
+
 def test_devanagari_combining_marks_do_not_force_an_extra_wrap() -> None:
     from app.pipeline import captions as caption_module
 

@@ -193,6 +193,10 @@ class CaptionSettings(BaseModel):
     letter_spacing: float = Field(default=0.0, ge=-5.0, le=20.0)
     word_spacing: float = Field(default=0.0, ge=0.0, le=40.0)
     text_case: CaptionTextCase = CaptionTextCase.NONE
+    # Caption density: how many words may share one on-screen caption and how
+    # many wrapped lines it may use. Lower values keep the frame uncluttered.
+    max_words: int = Field(default=9, ge=2, le=20)
+    max_lines: int = Field(default=2, ge=1, le=3)
     # Devanagari (नेपाली) or practical Roman Nepali (roman) for the Nepali
     # caption track. English words inside the line stay in Latin script either
     # way; the setting only changes the script the Nepali text is written in.
@@ -428,6 +432,27 @@ class TranslateSegmentsRequest(BaseModel):
 
     @model_validator(mode="after")
     def ordered_segments(self) -> TranslateSegmentsRequest:
+        ordered = sorted(self.segments, key=lambda segment: segment.start)
+        previous_end = -1.0
+        for segment in ordered:
+            if segment.start < previous_end - 0.001:
+                raise ValueError("Caption segments must not overlap.")
+            previous_end = segment.end
+        self.segments = ordered
+        return self
+
+
+class TranslateJobCaptionsRequest(BaseModel):
+    """Translate the editable lines of an existing render without an upload id."""
+
+    segments: list[CaptionSegment] | None = Field(default=None, max_length=5000)
+    quality: TranscriptionQuality | None = None
+    language: str = Field(default="ne", pattern=r"^[a-z]{2,3}$")
+
+    @model_validator(mode="after")
+    def ordered_segments(self) -> TranslateJobCaptionsRequest:
+        if not self.segments:
+            return self
         ordered = sorted(self.segments, key=lambda segment: segment.start)
         previous_end = -1.0
         for segment in ordered:

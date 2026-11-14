@@ -62,6 +62,8 @@ export const DEFAULT_SETTINGS: ClipSettings = {
     letter_spacing: 0,
     word_spacing: 0,
     text_case: 'none',
+    max_words: 9,
+    max_lines: 2,
     nepali_script: 'devanagari',
     secondary_enabled: true,
     secondary_font: 'Mukta',

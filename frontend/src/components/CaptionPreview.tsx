@@ -70,7 +70,7 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
-function groupWords(words: TranscriptWord[]): CaptionGroup[] {
+function groupWords(words: TranscriptWord[], maxWords = 9): CaptionGroup[] {
   const groups: CaptionGroup[] = []
   let current: TranscriptWord[] = []
   const flush = () => {
@@ -89,7 +89,7 @@ function groupWords(words: TranscriptWord[]): CaptionGroup[] {
         gap > 0.72 ||
         sentence ||
         word.end - (current[0]?.start ?? word.start) > 6.4 ||
-        current.length >= 9
+        current.length >= maxWords
       ) {
         flush()
       }
@@ -97,6 +97,18 @@ function groupWords(words: TranscriptWord[]): CaptionGroup[] {
     current.push(word)
   }
   flush()
+  return groups
+}
+
+function chunkWords(words: TranscriptWord[], maxWords: number): CaptionGroup[] {
+  const groups: CaptionGroup[] = []
+  const perGroup = Math.max(1, Math.round(maxWords))
+  for (let index = 0; index < words.length; index += perGroup) {
+    const slice = words.slice(index, index + perGroup)
+    const first = slice[0]
+    const last = slice[slice.length - 1]
+    if (first && last) groups.push({ words: slice, start: first.start, end: last.end })
+  }
   return groups
 }
 
@@ -136,6 +148,7 @@ function resolveTimeline(
   time: number,
   segments: CaptionSegment[] | undefined,
   words: TranscriptWord[] | undefined,
+  maxWords = 9,
 ): CaptionGroup | null {
   const sourceWords = words ?? []
   if (segments?.length) {
@@ -160,10 +173,18 @@ function resolveTimeline(
         : splitEditedSegment(segment)
       : splitEditedSegment(segment)
     if (!segmentWords.length) return null
-    return { words: segmentWords, start: segment.start, end: segment.end }
+    const chunks = chunkWords(segmentWords, maxWords)
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index]
+      if (!chunk) continue
+      const next = chunks[index + 1]
+      const visibleEnd = Math.min(chunk.end + 0.18, next ? next.start - 0.01 : chunk.end + 0.3)
+      if (time >= chunk.start - 0.02 && time <= visibleEnd) return chunk
+    }
+    return null
   }
   if (!sourceWords.length) return null
-  const groups = groupWords(sourceWords)
+  const groups = groupWords(sourceWords, maxWords)
   for (let index = 0; index < groups.length; index += 1) {
     const group = groups[index]
     if (!group) continue
@@ -271,14 +292,19 @@ export function CaptionPreview({
   const timeline = loop ? undefined : segments
   const previewWords = loop ? PREVIEW_WORDS : words
   const group = loop
-    ? resolveTimeline(currentTime, undefined, PREVIEW_WORDS)
-    : resolveTimeline(currentTime, timeline, previewWords)
-  const secondary =
+    ? resolveTimeline(currentTime, undefined, PREVIEW_WORDS, settings.max_words)
+    : resolveTimeline(currentTime, timeline, previewWords, settings.max_words)
+  const secondaryGroup =
     !loop && settings.secondary_enabled
-      ? secondarySegments?.find(
-          (segment) => currentTime >= segment.start - 0.02 && currentTime < segment.end,
-        )
-      : undefined
+      ? resolveTimeline(currentTime, secondarySegments, undefined, settings.max_words)
+      : null
+  const secondary = secondaryGroup
+    ? {
+        start: secondaryGroup.start,
+        end: secondaryGroup.end,
+        text: secondaryGroup.words.map((word) => word.text).join(' '),
+      }
+    : undefined
 
   // This layer sits on top of the video element. It must never intercept
   // pointer input, or the native controls and click-to-play stop working.
@@ -358,6 +384,13 @@ export function CaptionPreview({
     WebkitTextStroke: outline > 0 ? `${outline * 0.8}px rgba(0,0,0,0.74)` : undefined,
     paintOrder: 'stroke fill',
     textShadow: shadow > 0 ? `0 ${shadow}px ${shadow * 1.5}px rgba(0,0,0,0.62)` : undefined,
+  }
+  const lineClamp: CSSProperties = {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: settings.max_lines,
+    overflow: 'hidden',
+    width: '100%',
   }
   const top = settings.position === 'top' ? '16.5%' : settings.position === 'middle' ? '49%' : '80%'
   // Match the ASS export anchors: top captions grow downward from the anchor,
@@ -451,39 +484,45 @@ export function CaptionPreview({
           } as CSSProperties
         }
       >
-        {secondary ? <div style={secondaryStyle}>{secondary.text}</div> : null}
+        {secondary ? (
+          <div style={lineClamp}>
+            <div style={secondaryStyle}>{secondary.text}</div>
+          </div>
+        ) : null}
         {group ? (
-          <div style={baseStyle}>
-            {group.words.map((word, wordIndex) => {
-              const active = wordIndex === activeIndex
-              const display = transformCase(word.text, settings.text_case)
-              const visible = visibleCharacterCount(word)
-              const shown = typewriter ? display.slice(0, visible) : display
-              const hidden = typewriter ? display.slice(visible) : ''
-              const activeClass =
-                active && wordEffect === 'bounce'
-                  ? 'caption-anim-bounce'
-                  : active && wordEffect === 'pop'
-                    ? 'caption-anim-pop'
-                    : active && wordEffect === 'pulse'
-                      ? 'caption-anim-pulse'
-                      : active && wordEffect === 'wiggle'
-                        ? 'caption-anim-wiggle'
-                        : undefined
-              return (
-                <span
-                  key={`${wordIndex}-${active ? activeIndex : 'rest'}-${word.start}`}
-                  className={activeClass}
-                  style={{
-                    ...wordCss(wordIndex),
-                    marginRight: wordIndex < group.words.length - 1 ? wordGap : 0,
-                  }}
-                >
-                  {shown}
-                  {hidden ? <span style={{ opacity: 0 }}>{hidden}</span> : null}
-                </span>
-              )
-            })}
+          <div style={lineClamp}>
+            <div style={baseStyle}>
+              {group.words.map((word, wordIndex) => {
+                const active = wordIndex === activeIndex
+                const display = transformCase(word.text, settings.text_case)
+                const visible = visibleCharacterCount(word)
+                const shown = typewriter ? display.slice(0, visible) : display
+                const hidden = typewriter ? display.slice(visible) : ''
+                const activeClass =
+                  active && wordEffect === 'bounce'
+                    ? 'caption-anim-bounce'
+                    : active && wordEffect === 'pop'
+                      ? 'caption-anim-pop'
+                      : active && wordEffect === 'pulse'
+                        ? 'caption-anim-pulse'
+                        : active && wordEffect === 'wiggle'
+                          ? 'caption-anim-wiggle'
+                          : undefined
+                return (
+                  <span
+                    key={`${wordIndex}-${active ? activeIndex : 'rest'}-${word.start}`}
+                    className={activeClass}
+                    style={{
+                      ...wordCss(wordIndex),
+                      marginRight: wordIndex < group.words.length - 1 ? wordGap : 0,
+                    }}
+                  >
+                    {shown}
+                    {hidden ? <span style={{ opacity: 0 }}>{hidden}</span> : null}
+                  </span>
+                )
+              })}
+            </div>
           </div>
         ) : null}
       </div>

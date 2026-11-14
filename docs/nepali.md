@@ -646,7 +646,11 @@ writes it phonetically in Roman letters. Add the spelling to
   drawer does the same from the other screens when a completed export exists.
   On the Style screen the edited lines are passed to the next `POST /api/jobs`
   render. Roman is used for the render when it has manual edits; otherwise the
-  server transliterates the source.
+  server transliterates the source. The same drawer can generate an English
+  subtitle track with `POST /api/captions/translate` (upload) or
+  `POST /api/jobs/{id}/translate` (finished export), and exposes caption
+  density controls (`CaptionSettings.max_words` / `max_lines`) so the renderer
+  and live preview group only a readable number of words and lines at a time.
 - Nepali → English translation prompt: `backend/app/services/translator.py`.
   English-only lines are kept unchanged; only Nepali and mixed lines are sent
   through translation. Translation always uses the canonical Devanagari lines,

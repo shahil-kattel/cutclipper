@@ -51,16 +51,26 @@ interface ResultsStepProps {
   captionSegments?: CaptionSegment[]
   /** Roman lines when the user has edited or generated that track. */
   captionRomanSegments?: CaptionSegment[] | null
+  /** English translation of the current lines, when generated. */
+  captionTranslation?: CaptionSegment[] | null
+  translatingEnglish?: boolean
+  onTranslateEnglish?: () => void | Promise<unknown>
   /** Script currently selected for the edited caption track. */
   captionScript?: NepaliScript
   /** Opens the shared caption editor (text, timing, and script). */
   onEditCaptions?: () => void
+  /** App-level caption style, shared with the caption editor drawer. */
+  captionStyle?: CaptionSettings
   /** Keeps the app-level settings in sync with style edits on this page. */
   onCaptionStyleChange?: (captions: CaptionSettings) => void
   /** Switches the global caption track to Devanagari or Roman. */
   onScriptChange?: (script: NepaliScript) => void
   /** Renders the current lines/style and resolves when the clip is ready. */
-  onPrepareVideo: (captions: CaptionSettings, segments: CaptionSegment[]) => Promise<Job>
+  onPrepareVideo: (
+    captions: CaptionSettings,
+    segments: CaptionSegment[],
+    secondarySegments?: CaptionSegment[],
+  ) => Promise<Job>
 }
 
 export function ResultsStep({
@@ -70,7 +80,11 @@ export function ResultsStep({
   canEditSettings = true,
   captionSegments,
   captionRomanSegments,
+  captionTranslation,
+  translatingEnglish = false,
+  onTranslateEnglish,
   captionScript = 'devanagari',
+  captionStyle,
   onEditCaptions,
   onCaptionStyleChange,
   onScriptChange,
@@ -80,9 +94,10 @@ export function ResultsStep({
   const [editingCaptions, setEditingCaptions] = useState(false)
   const [preparingVideo, setPreparingVideo] = useState(false)
   const [preparingClipIndex, setPreparingClipIndex] = useState<number | null>(null)
+  const [captionTrack, setCaptionTrack] = useState<'source' | 'english' | 'both'>('source')
   const preparedFingerprint = useRef<{ jobId: string; fingerprint: string } | null>(null)
   const [captionDraft, setCaptionDraft] = useState<CaptionSettings>(() =>
-    structuredClone(job.settings.captions),
+    structuredClone(captionStyle ?? job.settings.captions),
   )
   const [previewCaptionSegments, setPreviewCaptionSegments] = useState<CaptionSegment[]>(
     captionSegments ?? [],
@@ -91,9 +106,15 @@ export function ResultsStep({
   const previewRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCaptionDraft(structuredClone(job.settings.captions))
+    setCaptionDraft(structuredClone(captionStyle ?? job.settings.captions))
     setPreviewCaptionSegments(captionSegments ?? [])
-  }, [job.id, job.settings.captions, captionSegments])
+  }, [job.id, job.settings.captions, captionSegments, captionStyle])
+  useEffect(() => {
+    // Once an English track exists, burn it alongside the Nepali source by
+    // default; the user can still switch back to either single track.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCaptionTrack(captionTranslation?.length ? 'both' : 'source')
+  }, [captionTranslation])
   const clips = [...job.clips].sort((a, b) => a.index - b.index)
   const totalSize = clips.reduce((sum, clip) => sum + clip.file_size, 0)
   const captionMode = job.mode === 'captions'
@@ -106,14 +127,23 @@ export function ResultsStep({
     captionScript === 'roman' && captionRomanSegments?.length
       ? captionRomanSegments
       : previewCaptionSegments
+  const englishCaptionSegments = captionTranslation ?? []
+  const primaryCaptionSegments =
+    captionTrack === 'source' || !englishCaptionSegments.length
+      ? editedCaptionSegments
+      : englishCaptionSegments
+  const secondaryCaptionSegments =
+    captionTrack === 'both' && englishCaptionSegments.length ? editedCaptionSegments : undefined
   const renderCaptions: CaptionSettings = {
     ...captionDraft,
     enabled: true,
     nepali_script: captionScript,
+    secondary_enabled: Boolean(secondaryCaptionSegments?.length),
   }
   const downloadFingerprint = JSON.stringify({
     captions: renderCaptions,
-    segments: editedCaptionSegments,
+    segments: primaryCaptionSegments,
+    secondary: secondaryCaptionSegments,
   })
 
   const updateCaptionDraft = (captions: CaptionSettings) => {
@@ -144,7 +174,7 @@ export function ResultsStep({
     zip?: boolean
   } = {}) => {
     if (preparingVideo) return
-    if (!editedCaptionSegments.length) {
+    if (!primaryCaptionSegments.length) {
       toast.info('Add at least one subtitle line before downloading.')
       return
     }
@@ -156,7 +186,11 @@ export function ResultsStep({
       setPreparingClipIndex(clipIndex ?? null)
       toast.info('Preparing your clip with the latest subtitles…')
       try {
-        prepared = await onPrepareVideo(renderCaptions, editedCaptionSegments)
+        prepared = await onPrepareVideo(
+          renderCaptions,
+          primaryCaptionSegments,
+          secondaryCaptionSegments,
+        )
         preparedFingerprint.current = {
           jobId: prepared.id,
           fingerprint: downloadFingerprint,
@@ -243,9 +277,12 @@ export function ResultsStep({
             variant="ghost"
             size="sm"
             icon={FileText}
-            disabled={!editedCaptionSegments.length}
+            disabled={!primaryCaptionSegments.length}
             onClick={() =>
-              downloadSrt(editedCaptionSegments, `${job.video?.title || 'cutclipper-captions'}.srt`)
+              downloadSrt(
+                primaryCaptionSegments,
+                `${job.video?.title || 'cutclipper-captions'}.srt`,
+              )
             }
           >
             Download .SRT
@@ -326,7 +363,8 @@ export function ResultsStep({
             sourceUrl={sourceUrl}
             posterUrl={job.video?.thumbnail_url ?? activePreviewClip.thumbnail_url}
             captionSettings={renderCaptions}
-            captionSegments={editedCaptionSegments}
+            captionSegments={primaryCaptionSegments}
+            secondaryCaptionSegments={secondaryCaptionSegments}
             preparing={preparingVideo}
             onDownloadClip={() => void downloadLatest({ clipIndex: activePreviewClip.index })}
             captionEditor={
@@ -336,6 +374,11 @@ export function ResultsStep({
                   segments={previewCaptionSegments}
                   romanSegments={captionRomanSegments}
                   script={captionScript}
+                  captionTrack={captionTrack}
+                  onCaptionTrackChange={setCaptionTrack}
+                  englishSegments={englishCaptionSegments}
+                  translatingEnglish={translatingEnglish}
+                  onTranslateEnglish={onTranslateEnglish}
                   draft={captionDraft}
                   onDraftChange={updateCaptionDraft}
                   preparing={preparingVideo}
@@ -482,6 +525,7 @@ function ClipPreview({
   posterUrl,
   captionSettings,
   captionSegments,
+  secondaryCaptionSegments,
   preparing,
   onDownloadClip,
   captionEditor,
@@ -494,6 +538,7 @@ function ClipPreview({
   posterUrl?: string
   captionSettings: CaptionSettings
   captionSegments: CaptionSegment[]
+  secondaryCaptionSegments?: CaptionSegment[]
   preparing: boolean
   onDownloadClip: () => void
   captionEditor?: ReactNode
@@ -515,6 +560,9 @@ function ClipPreview({
     ? 'Captioned video'
     : `Clip ${String(activeClip.index).padStart(2, '0')}`
   const previewSegments = segmentsForClip(captionSegments, clipStart, length)
+  const previewSecondarySegments = secondaryCaptionSegments
+    ? segmentsForClip(secondaryCaptionSegments, clipStart, length)
+    : undefined
 
   useEffect(() => {
     // A link source can download as a container the browser cannot play;
@@ -630,6 +678,7 @@ function ClipPreview({
               <CaptionPreview
                 settings={captionSettings}
                 segments={previewSegments}
+                secondarySegments={previewSecondarySegments}
                 time={time}
                 videoWidth={activeClip.width}
                 videoHeight={activeClip.height}
@@ -863,6 +912,11 @@ function CaptionQuickEdit({
   segments,
   romanSegments,
   script,
+  captionTrack,
+  onCaptionTrackChange,
+  englishSegments,
+  translatingEnglish,
+  onTranslateEnglish,
   draft,
   onDraftChange,
   preparing,
@@ -874,6 +928,11 @@ function CaptionQuickEdit({
   segments?: CaptionSegment[]
   romanSegments?: CaptionSegment[] | null
   script?: NepaliScript
+  captionTrack: 'source' | 'english' | 'both'
+  onCaptionTrackChange: (track: 'source' | 'english' | 'both') => void
+  englishSegments: CaptionSegment[]
+  translatingEnglish: boolean
+  onTranslateEnglish?: () => void | Promise<unknown>
   draft: CaptionSettings
   onDraftChange: (captions: CaptionSettings) => void
   preparing: boolean
@@ -884,11 +943,15 @@ function CaptionQuickEdit({
   const clip = job.clips[0]
   const previewWidth = clip?.width ?? 1080
   const previewHeight = clip?.height ?? 1920
-  const typedSegments =
+  const sourceSegments =
     (script ?? draft.nepali_script ?? 'devanagari') === 'roman' && romanSegments?.length
       ? romanSegments
       : segments
-  const previewSegment = typedSegments?.find((segment) => segment.text.trim())
+  const primarySegments =
+    captionTrack === 'source' || !englishSegments.length ? sourceSegments : englishSegments
+  const previewSegment = primarySegments?.find((segment) => segment.text.trim())
+  const secondaryPreviewSegment =
+    captionTrack === 'both' ? sourceSegments?.find((segment) => segment.text.trim()) : undefined
   const previewTime = previewSegment
     ? Math.min(
         previewSegment.start + 0.01,
@@ -946,8 +1009,13 @@ function CaptionQuickEdit({
           )}
           <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/60" />
           <CaptionPreview
-            settings={{ ...draft, enabled: true }}
+            settings={{
+              ...draft,
+              enabled: true,
+              secondary_enabled: Boolean(secondaryPreviewSegment),
+            }}
             segments={previewSegment ? [previewSegment] : undefined}
+            secondarySegments={secondaryPreviewSegment ? [secondaryPreviewSegment] : undefined}
             words={previewSegment?.words}
             time={previewTime}
             loop={!previewSegment}
@@ -1000,6 +1068,77 @@ function CaptionQuickEdit({
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1 text-[9.5px] font-semibold text-ink-soft">
+              <span>Words per caption</span>
+              <select
+                value={draft.max_words}
+                onChange={(event) => update({ max_words: Number(event.target.value) })}
+                className="paper-select h-7 w-full text-[10px]"
+              >
+                {Array.from({ length: 13 }, (_, index) => index + 3).map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1 text-[9.5px] font-semibold text-ink-soft">
+              <span>Lines</span>
+              <select
+                value={draft.max_lines}
+                onChange={(event) => update({ max_lines: Number(event.target.value) })}
+                className="paper-select h-7 w-full text-[10px]"
+              >
+                {[1, 2, 3].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="rounded-md border border-ink/20 bg-paper px-2 py-2">
+            {englishSegments.length ? (
+              <>
+                <p className="text-[9.5px] font-semibold text-ink-soft">Subtitle track</p>
+                <div className="mt-1.5 grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      ['source', 'Nepali'],
+                      ['english', 'English'],
+                      ['both', 'Both'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={captionTrack === value}
+                      onClick={() => onCaptionTrackChange(value)}
+                      className={`h-7 rounded-md border text-[9.5px] font-semibold transition ${
+                        captionTrack === value
+                          ? 'border-ink bg-teal-soft text-ink shadow-[1px_1px_0_#211d19]'
+                          : 'border-ink/20 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void onTranslateEnglish?.()}
+                disabled={translatingEnglish || !segments?.length}
+                className="inline-flex h-7 w-full items-center justify-center rounded-md border border-ink/25 bg-paper-soft px-2 text-[9.5px] font-semibold text-ink-soft transition hover:border-ink hover:bg-teal-soft hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {translatingEnglish ? 'Translating…' : 'Translate & add English subtitles'}
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">

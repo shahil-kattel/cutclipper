@@ -36,6 +36,7 @@ from app.schemas import (
     TranscribeRequest,
     TranscriptResponse,
     TranscriptWordOut,
+    TranslateJobCaptionsRequest,
     TranslateSegmentsRequest,
     TranslateSegmentsResponse,
 )
@@ -166,7 +167,11 @@ async def upload_video_stream(upload_id: str, request: Request) -> FileResponse:
     )
 
 
-def _refresh_cached_transcript(cached: TranscriptResponse) -> TranscriptResponse:
+def _refresh_cached_transcript(
+    cached: TranscriptResponse,
+    *,
+    max_words: int = 10,
+) -> TranscriptResponse:
     """Re-apply the current word normalisation to an older cached transcript.
 
     Cache files persist across releases, so a transcript written before a
@@ -184,7 +189,7 @@ def _refresh_cached_transcript(cached: TranscriptResponse) -> TranscriptResponse
     cached.words = [
         TranscriptWordOut(start=word.start, end=word.end, text=word.text) for word in words
     ]
-    cached.segments = build_caption_segments(words)
+    cached.segments = build_caption_segments(words, max_words=max_words)
     return cached
 
 
@@ -204,7 +209,10 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
     if cache_path.exists() and not payload.force:
         try:
             cached = TranscriptResponse.model_validate_json(cache_path.read_text("utf-8"))
-            cached = _refresh_cached_transcript(cached)
+            cached = _refresh_cached_transcript(
+                cached,
+                max_words=settings.captions.max_words,
+            )
             cached.cached = True
             return cached
         except (OSError, ValueError):
@@ -236,7 +244,10 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
         quality=payload.quality,
         task=payload.task,
     )
-    segments = build_caption_segments(transcript.words)
+    segments = build_caption_segments(
+        transcript.words,
+        max_words=settings.captions.max_words,
+    )
     warnings = list(transcript.warnings)
     if transcript.language == "ne" and language != "ne":
         warnings.append(
@@ -409,6 +420,76 @@ async def job_captions(job_id: str, request: Request) -> JobCaptionsResponse:
         duration=duration,
         segments=segments,
         words=[TranscriptWordOut(start=word.start, end=word.end, text=word.text) for word in words],
+    )
+
+
+@router.post("/jobs/{job_id}/translate", response_model=TranslateSegmentsResponse)
+async def translate_job_captions(
+    job_id: str,
+    payload: TranslateJobCaptionsRequest,
+    request: Request,
+) -> TranslateSegmentsResponse:
+    """Translate edited lines from a finished render (works for link sources)."""
+
+    manager = _manager(request)
+    settings = _settings(request)
+    record = manager.get(job_id)
+    if record.video is not None and record.video.has_audio is False:
+        raise AppError(
+            "This video has no audio track to translate.",
+            code="no_audio",
+            status_code=422,
+        )
+    _, job_lines, _ = manager.caption_lines(job_id)
+    segments = payload.segments or job_lines
+    if not segments:
+        raise AppError(
+            "Add or transcribe at least one caption line before translating.",
+            code="translation_segments_missing",
+            status_code=422,
+        )
+    source_path = record.source_path
+    if source_path is None or not source_path.exists():
+        raise AppError(
+            "That source video is no longer available for translation.",
+            code="source_not_available",
+            status_code=404,
+        )
+    duration = record.video.duration if record.video else 0.0
+    result = await translate_caption_segments(
+        segments,
+        audio_path=source_path,
+        duration=duration,
+        settings=settings,
+        quality=payload.quality,
+        language=payload.language,
+        cache_dir=record.job_dir,
+    )
+    if not result.segments:
+        raise AppError(
+            (
+                result.warnings[-1]
+                if result.warnings
+                else "The English translation came back empty. Try re-transcribing the speech."
+            ),
+            code="translation_empty",
+            status_code=422,
+            details={"warnings": result.warnings},
+        )
+    logger.info(
+        "job caption translation ready",
+        extra={
+            "job_id": job_id,
+            "engine": result.engine,
+            "language": payload.language,
+            "segments": len(result.segments),
+        },
+    )
+    return TranslateSegmentsResponse(
+        segments=result.segments,
+        source_language=payload.language,
+        engine=result.engine,
+        warnings=result.warnings,
     )
 
 

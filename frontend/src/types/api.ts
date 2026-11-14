@@ -61,6 +61,10 @@ export interface CaptionSettings {
   letter_spacing: number
   word_spacing: number
   text_case: CaptionTextCase
+  /** Maximum words in one on-screen caption before it starts a new group. */
+  max_words: number
+  /** Maximum wrapped lines one caption group may use. */
+  max_lines: number
   /** Write the Nepali caption track in Devanagari or Roman Nepali. */
   nepali_script: NepaliScript
   /** Burn the Nepali source line above the translated line. */

@@ -26,6 +26,7 @@ import {
   romanizeCaptions,
   transcribeCaptions,
   translateCaptions,
+  translateJobCaptions,
   uploadVideo,
 } from './lib/api'
 import { clearActiveJob, readActiveJob, storeActiveJob } from './lib/activeJob'
@@ -516,29 +517,44 @@ function AppContent() {
   )
 
   const translateGeneratedCaptions = useCallback(async () => {
-    if (!captionUploadId || !captionSegments.length) {
+    if (!captionSegments.length) {
       toast.info('Generate Nepali subtitle lines first.')
-      return
+      return null
     }
     setTranslatingCaptions(true)
     try {
-      const response = await translateCaptions(
-        captionUploadId,
-        captionSegments,
-        captionQuality,
-        captionSourceLanguage,
-      )
+      const response = captionUploadId
+        ? await translateCaptions(
+            captionUploadId,
+            captionSegments,
+            captionQuality,
+            captionSourceLanguage,
+          )
+        : job?.id
+          ? await translateJobCaptions(
+              job.id,
+              captionSegments,
+              captionQuality,
+              captionSourceLanguage,
+            )
+          : null
+      if (!response) {
+        toast.info('Render or upload this video once before translating its lines.')
+        return null
+      }
       setCaptionTranslation(response.segments)
-      setCaptionView('translation')
+      if (step === 'caption') setCaptionView('translation')
       const warning = response.warnings[0]
       if (warning) toast.info(warning)
       toast.success(`English subtitles ready · ${response.segments.length} lines`)
+      return response.segments
     } catch (error) {
       toast.error(errorMessage(error))
+      return null
     } finally {
       setTranslatingCaptions(false)
     }
-  }, [captionQuality, captionSegments, captionSourceLanguage, captionUploadId, toast])
+  }, [captionQuality, captionSegments, captionSourceLanguage, captionUploadId, job, step, toast])
 
   const uploadLocalFile = useCallback(
     async (file: File) => {
@@ -704,14 +720,21 @@ function AppContent() {
         settings.captions.nepali_script === 'roman' && captionRomanSegments?.length
           ? captionRomanSegments
           : captionSegments
+      const englishSegments = captionTranslation ?? []
+      const useEnglish =
+        !clipTranslate && englishSegments.length > 0 && settings.captions.secondary_enabled
+      const primarySegments = useEnglish ? englishSegments : editedSegments
+      const secondarySegments = useEnglish ? editedSegments : undefined
       const newJob = await createJob(source, settings, {
         language: clipLanguage === 'auto' ? null : clipLanguage,
         quality: clipQuality,
         task: clipTranslate ? 'translate' : 'transcribe',
         // Reuse lines edited in the shared caption editor. A one-pass
         // translation replaces the spoken words, so only pass source lines
-        // when translation is off.
-        segments: !clipTranslate && editedSegments.length ? editedSegments : undefined,
+        // when translation is off. An added English track becomes the main
+        // line with the Nepali source above it.
+        segments: !clipTranslate && primarySegments.length ? primarySegments : undefined,
+        secondarySegments,
       })
       if (generationToken.current !== token) {
         // The user navigated away while the request was in flight. Do not
@@ -737,6 +760,7 @@ function AppContent() {
   }, [
     captionRomanSegments,
     captionSegments,
+    captionTranslation,
     clipLanguage,
     clipQuality,
     clipTranslate,
@@ -984,10 +1008,14 @@ function AppContent() {
   }, [])
 
   const prepareVideoWithCaptions = useCallback(
-    async (captions: CaptionSettings, segments: CaptionSegment[]): Promise<Job> => {
+    async (
+      captions: CaptionSettings,
+      segments: CaptionSegment[],
+      secondarySegments?: CaptionSegment[],
+    ): Promise<Job> => {
       if (!job) throw new Error('This export is no longer available.')
       if (!segments.length) throw new Error('Add at least one caption line first.')
-      const queued = await restyleJob(job.id, captions, segments)
+      const queued = await restyleJob(job.id, captions, segments, secondarySegments)
       let current = queued
       const deadline = Date.now() + 10 * 60 * 1000
       while (current.status === 'queued' || current.status === 'running') {
@@ -1026,14 +1054,18 @@ function AppContent() {
       toast.info('Add at least one caption line before downloading.')
       return
     }
+    const english = captionTranslation ?? []
+    const primary = english.length ? english : segments
+    const secondary = english.length ? segments : undefined
     const captions = {
       ...(step === 'caption' ? captionSettings : settings.captions),
       enabled: true,
       nepali_script: script,
+      secondary_enabled: Boolean(secondary),
     }
     setDownloadingEditorVideo(true)
     try {
-      const prepared = await prepareVideoWithCaptions(captions, segments)
+      const prepared = await prepareVideoWithCaptions(captions, primary, secondary)
       const link = document.createElement('a')
       if (prepared.mode === 'captions' && prepared.clips[0]) {
         link.href = assetUrl(prepared.clips[0].download_url)
@@ -1057,6 +1089,7 @@ function AppContent() {
     captionRomanSegments,
     captionSegments,
     captionSettings,
+    captionTranslation,
     downloadingEditorVideo,
     job,
     prepareVideoWithCaptions,
@@ -1315,10 +1348,14 @@ function AppContent() {
                   job={job}
                   captionSegments={captionSegments}
                   captionRomanSegments={captionRomanSegments}
+                  captionTranslation={captionTranslation}
+                  translatingEnglish={translatingCaptions}
+                  onTranslateEnglish={translateGeneratedCaptions}
                   captionScript={captionEditScript}
                   onNewProject={startOver}
                   onEditSettings={editSettings}
                   onEditCaptions={() => void openCaptionEditor()}
+                  captionStyle={captionEditSettings}
                   onCaptionStyleChange={(captions) => {
                     setCaptionSettings(captions)
                     setSettings((current) => ({ ...current, captions }))
@@ -1345,6 +1382,20 @@ function AppContent() {
         script={captionEditScript}
         onScriptChange={changeCaptionScript}
         devanagariFont={captionEditSettings.secondary_font}
+        captionSettings={captionEditSettings}
+        onCaptionSettingsChange={changeCaptionSettings}
+        englishSegments={captionTranslation}
+        translatingEnglish={translatingCaptions}
+        onTranslateEnglish={translateGeneratedCaptions}
+        onDownloadEnglishSrt={
+          captionTranslation?.length
+            ? () =>
+                downloadSrt(
+                  captionTranslation,
+                  `${job?.video?.title || preview?.title || 'cutclipper-captions'}.en.srt`,
+                )
+            : undefined
+        }
         romanSegments={captionRomanSegments}
         romanising={romanising}
         loading={

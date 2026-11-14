@@ -349,7 +349,14 @@ class JobManager:
             words = words_from_segments(segments)
         else:
             words = list(record.caption_words)
-            segments = build_caption_segments(words) if words else []
+            segments = (
+                build_caption_segments(
+                    words,
+                    max_words=record.settings.captions.max_words,
+                )
+                if words
+                else []
+            )
         duration = record.video.duration if record.video else 0.0
         return duration, segments, words
 
