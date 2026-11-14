@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { CaseSensitive, Check, Palette, Search, Sparkles, Type, X } from 'lucide-react'
+import {
+  CaseSensitive,
+  Check,
+  LoaderCircle,
+  Palette,
+  Search,
+  Sparkles,
+  Type,
+  X,
+} from 'lucide-react'
 import type {
   CaptionFontStyle,
   CaptionPosition,
   CaptionSettings,
   CaptionTextCase,
+  NepaliScript,
 } from '../types/api'
 import { cn } from '../lib/utils'
 import {
@@ -234,6 +244,60 @@ export function FontPicker({
         </div>
       ) : null}
     </>
+  )
+}
+
+export function NepaliScriptToggle({
+  value,
+  onChange,
+  busy = false,
+  devanagariFont,
+}: {
+  value: NepaliScript
+  onChange: (value: NepaliScript) => void
+  busy?: boolean
+  devanagariFont?: string
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Nepali caption script"
+      className="flex shrink-0 flex-wrap items-center gap-1.5"
+    >
+      <button
+        type="button"
+        aria-pressed={value === 'devanagari'}
+        onClick={() => onChange('devanagari')}
+        className={cn(
+          'rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition',
+          value === 'devanagari'
+            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+        )}
+        style={devanagariFont ? { fontFamily: captionFontStack(devanagariFont) } : undefined}
+      >
+        देवनागरी
+      </button>
+      <button
+        type="button"
+        aria-pressed={value === 'roman'}
+        aria-busy={busy}
+        onClick={() => onChange('roman')}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition',
+          value === 'roman'
+            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+        )}
+      >
+        Roman
+        {busy ? (
+          <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" />
+        ) : (
+          <span className="font-hand text-[12px] text-ink-faint">Aa</span>
+        )}
+      </button>
+    </div>
   )
 }
 

@@ -7,6 +7,7 @@ import type {
   JobOptions,
   JobSource,
   PreviewResponse,
+  RomanizeResponse,
   TranscriptResponse,
   TranscriptionQuality,
   TranscriptionTask,
@@ -197,6 +198,17 @@ export async function translateCaptions(
       }),
     },
     60 * 60 * 1000,
+  )
+}
+
+export async function romanizeCaptions(segments: CaptionSegment[]): Promise<RomanizeResponse> {
+  return request<RomanizeResponse>(
+    '/captions/romanize',
+    {
+      method: 'POST',
+      body: JSON.stringify({ segments }),
+    },
+    30_000,
   )
 }
 

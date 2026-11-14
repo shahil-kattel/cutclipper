@@ -26,6 +26,7 @@ export type CaptionStyle =
 export type CaptionPosition = 'top' | 'middle' | 'bottom'
 export type CaptionFontStyle = 'regular' | 'bold' | 'italic' | 'bold_italic'
 export type CaptionTextCase = 'none' | 'uppercase' | 'lowercase'
+export type NepaliScript = 'devanagari' | 'roman'
 export type TransitionStyle = 'fade' | 'zoom' | 'slide' | 'whip_pan'
 export type CaptionFont = string
 export type JobMode = 'clips' | 'captions'
@@ -60,6 +61,8 @@ export interface CaptionSettings {
   letter_spacing: number
   word_spacing: number
   text_case: CaptionTextCase
+  /** Write the Nepali caption track in Devanagari or Roman Nepali. */
+  nepali_script: NepaliScript
   /** Burn the Nepali source line above the translated line. */
   secondary_enabled: boolean
   /** Devanagari-capable font for the Nepali source line. */
@@ -151,6 +154,10 @@ export interface TranslationResponse {
   source_language: string
   engine: 'llm' | 'whisper'
   warnings: string[]
+}
+
+export interface RomanizeResponse {
+  segments: CaptionSegment[]
 }
 
 export interface Clip {

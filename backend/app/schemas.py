@@ -30,6 +30,11 @@ class CaptionTextCase(StrEnum):
     LOWERCASE = "lowercase"
 
 
+class NepaliScript(StrEnum):
+    DEVANAGARI = "devanagari"
+    ROMAN = "roman"
+
+
 class ClipSelectionMode(StrEnum):
     AUTO = "auto"
     EVEN = "even"
@@ -188,6 +193,10 @@ class CaptionSettings(BaseModel):
     letter_spacing: float = Field(default=0.0, ge=-5.0, le=20.0)
     word_spacing: float = Field(default=0.0, ge=0.0, le=40.0)
     text_case: CaptionTextCase = CaptionTextCase.NONE
+    # Devanagari (नेपाली) or practical Roman Nepali (roman) for the Nepali
+    # caption track. English words inside the line stay in Latin script either
+    # way; the setting only changes the script the Nepali text is written in.
+    nepali_script: NepaliScript = NepaliScript.DEVANAGARI
     # Burn the Nepali source line above the translated line. The secondary
     # track only renders when a secondary caption list is supplied, so the
     # default is harmless for captions that have no translation.
@@ -411,6 +420,14 @@ class TranslateSegmentsResponse(BaseModel):
     source_language: str = "ne"
     engine: Literal["llm", "whisper"] = "whisper"
     warnings: list[str] = Field(default_factory=list)
+
+
+class RomanizeSegmentsRequest(BaseModel):
+    segments: list[CaptionSegment] = Field(min_length=1, max_length=5000)
+
+
+class RomanizeSegmentsResponse(BaseModel):
+    segments: list[CaptionSegment] = Field(default_factory=list)
 
 
 class TranscriptWordOut(BaseModel):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 
@@ -173,6 +174,21 @@ def test_nepali_text_normalisation_cleans_danda_and_zero_width() -> None:
         transcriber._join_words(["प्रमुख", "त्यति", "विशिष्ट", "अत्यति", "अत्यति"])
         == "प्रमुख अतिथि, विशिष्ट अतिथि, अतिथि"
     )
+
+
+def test_sentences_break_on_the_nepali_danda() -> None:
+    words = [
+        transcriber.Word(start=0.0, end=1.0, text="नमस्ते।", probability=1.0),
+        transcriber.Word(start=1.0, end=2.0, text="संसार", probability=1.0),
+        transcriber.Word(start=2.0, end=3.0, text="राम्रो।", probability=1.0),
+        transcriber.Word(start=3.0, end=4.0, text="छ", probability=1.0),
+    ]
+    sentences = transcriber.build_sentences(words)
+    assert [sentence.text for sentence in sentences] == [
+        "नमस्ते।",
+        "संसार राम्रो।",
+        "छ",
+    ]
 
 
 def test_nepali_spelling_corrections_fix_non_words_only() -> None:
@@ -371,3 +387,56 @@ def test_coverage_repair_detects_a_skipped_phrase() -> None:
     full = [transcriber.Word(start=0.0, end=7.0, text="नमस्ते संसार", probability=1.0)]
     assert not transcriber._region_needs_repair(full, 0.0, 7.0)
     assert transcriber._largest_uncovered_gap(full, 0.0, 7.0) is None
+
+
+def test_coverage_repair_adds_the_missed_words(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"x")
+    work_dir = tmp_path / "accurate-chunks"
+    work_dir.mkdir()
+
+    async def fake_speech_regions(*args: object, **kwargs: object):
+        return [(0.0, 7.0)]
+
+    async def fake_run_process(command: list[str], **kwargs: object):
+        Path(command[-1]).write_bytes(b"x")
+        return SimpleNamespace(returncode=0, stderr="")
+
+    async def fake_chunks(*args: object, **kwargs: object):
+        assert kwargs["repair"] is False
+        return transcriber.Transcript(
+            words=[
+                transcriber.Word(start=1.0, end=2.0, text="छुटेको", probability=1.0),
+            ],
+            duration=7.0,
+        )
+
+    monkeypatch.setattr(transcriber, "_speech_regions", fake_speech_regions)
+    monkeypatch.setattr(transcriber, "run_process", fake_run_process)
+    monkeypatch.setattr(transcriber, "_transcribe_accurate_chunks", fake_chunks)
+
+    words = [
+        transcriber.Word(start=0.0, end=0.5, text="सुरु", probability=1.0),
+        transcriber.Word(start=6.5, end=7.0, text="अन्त्य", probability=1.0),
+    ]
+    repaired, warnings = asyncio.run(
+        transcriber._repair_accurate_gaps(
+            words,
+            audio,
+            7.0,
+            Settings(),
+            cancel_event=Event(),
+            on_progress=None,
+            model_size="Dragneel/whisper-medium-nepali-openslr-ct2",
+            device="cpu",
+            compute_type="int8",
+            kwargs={},
+            work_dir=work_dir,
+        )
+    )
+    # The repairable word is inserted once, between the two existing words,
+    # even though later rounds offer a wider window over the same area.
+    assert [word.text for word in repaired] == ["सुरु", "छुटेको", "अन्त्य"]
+    assert any("could not be captioned" in warning for warning in warnings)

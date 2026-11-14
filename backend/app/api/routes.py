@@ -29,6 +29,8 @@ from app.schemas import (
     PreviewRequest,
     PreviewResponse,
     RestyleCaptionsRequest,
+    RomanizeSegmentsRequest,
+    RomanizeSegmentsResponse,
     TranscribeRequest,
     TranscriptResponse,
     TranscriptWordOut,
@@ -38,6 +40,7 @@ from app.schemas import (
 from app.services.audio import extract_audio
 from app.services.downloader import fetch_metadata
 from app.services.media import get_media_tools
+from app.services.romanize import romanize_segments
 from app.services.transcriber import transcribe_audio
 from app.services.translator import translate_caption_segments
 
@@ -168,10 +171,11 @@ async def transcribe_captions(payload: TranscribeRequest, request: Request) -> T
     upload = await asyncio.to_thread(manager.uploads.load, payload.upload_id)
     language_key = payload.language or "auto"
     quality_key = payload.quality or "default"
-    # v3 invalidates caches produced by the vanilla large-v3 Nepali tier; Best
-    # and Maximum now use the Nepali fine-tuned model.
+    # v4 invalidates transcripts produced before speech-coverage repair and the
+    # expanded mixed Nepali/English glossary; re-transcribing is required to get
+    # the missing clauses and Latin English spellings.
     cache_path = (
-        upload.path.parent / f"transcript_v3_{language_key}_{quality_key}_{payload.task}.json"
+        upload.path.parent / f"transcript_v4_{language_key}_{quality_key}_{payload.task}.json"
     )
     if cache_path.exists() and not payload.force:
         try:
@@ -299,6 +303,19 @@ async def translate_captions(
         engine=result.engine,
         warnings=result.warnings,
     )
+
+
+@router.post("/captions/romanize", response_model=RomanizeSegmentsResponse)
+def romanize_captions(payload: RomanizeSegmentsRequest) -> RomanizeSegmentsResponse:
+    """Transliterate Nepali caption lines to Roman Nepali for the live editor.
+
+    The same transliterator runs inside the renderer, so the preview, SRT, and
+    burned captions agree even after the user edits a line. This is a sync
+    route so FastAPI runs it in its worker thread instead of blocking the
+    event loop on a long caption list.
+    """
+
+    return RomanizeSegmentsResponse(segments=romanize_segments(payload.segments))
 
 
 @router.post("/preview", response_model=PreviewResponse)

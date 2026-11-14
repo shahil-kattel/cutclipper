@@ -1,11 +1,13 @@
 # Nepali working reference
 
-Working notes for Nepali speech recognition, captions, translation, and the
-Devanagari → Latin glossary. Keep this file in sync with
-`backend/assets/nepali-english-terms.json` and the Nepali rules in
+Working notes for Nepali speech recognition, captions, translation, the
+Devanagari → English glossary, and Devanagari → Roman Nepali transliteration.
+Keep this file in sync with `backend/assets/nepali-english-terms.json`,
+`backend/assets/nepali-roman-lexicon.json`, and the Nepali rules in
 `backend/app/services/transcriber.py`.
 
-Language code: `ne`. Script: Devanagari. Word order: subject–object–verb.
+Language code: `ne`. Script: Devanagari, with optional Roman Nepali captions.
+Word order: subject–object–verb.
 
 ## 1. What "Nepali" covers here
 
@@ -397,7 +399,7 @@ unclear audio, not an automatic warning. गए, रहे, रही, दिए
 `backend/assets/nepali-english-terms.json` maps Devanagari spellings of English
 loans back to Latin script so captions keep English words in English. The
 current matcher does a direct lookup, then strips one case suffix from
-`_NEPALI_CASE_SUFFIXES`.
+`NEPALI_CASE_SUFFIXES` in `backend/app/services/nepali_terms.py`.
 
 ### What works
 
@@ -456,38 +458,123 @@ Case-suffix coverage:
   the selected face only if it supports Devanagari, otherwise a bundled
   Devanagari fallback such as Mukta. Bundled Devanagari faces also contain
   Latin glyphs for mixed words like `GBदेखि`.
-- **Spelling consistency.** Use तपाईं (anusvara) consistently; the current
-  `_NEPALI_WORD_CORRECTIONS` maps तव्य → तपाईँ (chandrabindu), while the UI and
-  README use तपाईं. Both are valid, but pick one.
+- **Spelling consistency.** Use तपाईं (anusvara) consistently; the
+  `NEPALI_WORD_CORRECTIONS` map in `backend/app/services/nepali_terms.py` maps
+  तव्य → तपाईँ (chandrabindu), while the UI and README use तपाईं. Both are
+  valid, but pick one.
 
 ## 7. Test phrases
 
 Use these as ASR/translation smoke tests.
 
-| Nepali | English |
-|---|---|
-| नमस्ते, मेरो नाम शाहिल हो। | Hello, my name is Shahil. |
-| तपाईंलाई कस्तो छ? | How are you? (formal) |
-| म ठीक छु, धन्यवाद। | I'm fine, thank you. |
-| आज हामी काठमाडौंमा भेट्यौं। | We met in Kathmandu today. |
-| उहाँले भन्नुभयो, “यो राम्रो छ।” | He/she said, "This is good." |
-| मैले काम गरें। | I did the work. |
-| उनीहरू घर गए। | They went home. |
-| हिजो पानी पर्यो। | It rained yesterday. |
-| भोलि बिहान बैठक हुनेछ। | There will be a meeting tomorrow morning. |
-| मलाई नेपाली सिक्न मन लाग्छ। | I want to learn Nepali. |
-| उसले सोध्यो, “तिमी कहाँ जान्छौ?” | He asked, "Where are you going?" |
-| यो भिडियो धेरै राम्रो छ; सबैले हेर्नुपर्छ। | This video is really good; everyone should watch it. |
-| कृपया माइक्रोफोन अलि नजिक राख्नुहोस्। | Please keep the microphone a little closer. |
-| हामीले आजै काम सक्नुपर्छ। | We have to finish the work today itself. |
-| उहाँहरू त्यहाँ रहे। | They stayed there. |
-| यो ल्यापटपको ब्याट्री राम्रो छ, तर विन्डोज अपडेट ढिलो हुन्छ। | This laptop's battery is good, but Windows updates are slow. |
-| मिटिङ साढे तीन बजे सुरु हुनेछ। | The meeting will start at 3:30. |
-| उहाँले दशैंमा घर जानुभयो। | He/she went home for Dashain. |
-| यो काम सजिलो छैन, तर गर्न सकिन्छ। | This work isn't easy, but it can be done. |
-| मलाई थाहा छैन, उहाँ आउनुहुन्छ कि हुँदैन। | I don't know whether he/she is coming. |
+| Nepali | Roman Nepali | English |
+|---|---|---|
+| नमस्ते, मेरो नाम शाहिल हो। | Namaste, mero naam Shahil ho. | Hello, my name is Shahil. |
+| तपाईंलाई कस्तो छ? | Tapainlai kasto chha? | How are you? (formal) |
+| म ठीक छु, धन्यवाद। | Ma thik chhu, dhanyabaad. | I'm fine, thank you. |
+| आज हामी काठमाडौंमा भेट्यौं। | Aaja haami Kathmanduma bhetyaun. | We met in Kathmandu today. |
+| उहाँले भन्नुभयो, “यो राम्रो छ।” | Uhaanle bhannubhayo, “Yo raamro chha.” | He/she said, "This is good." |
+| मैले काम गरें। | Maile kaam garen. | I did the work. |
+| उनीहरू घर गए। | Uniharu ghar gaye. | They went home. |
+| हिजो पानी पर्यो। | Hijo paani paryo. | It rained yesterday. |
+| भोलि बिहान बैठक हुनेछ। | Bholi bihaan baithak hunechha. | There will be a meeting tomorrow morning. |
+| मलाई नेपाली सिक्न मन लाग्छ। | Malai Nepali sikna man laagchha. | I want to learn Nepali. |
+| उसले सोध्यो, “तिमी कहाँ जान्छौ?” | Usle sodhyo, “Timi kahaan jaanchhau?” | He asked, "Where are you going?" |
+| यो भिडियो धेरै राम्रो छ; सबैले हेर्नुपर्छ। | Yo video dherai raamro chha; sabaile hernuparchha. | This video is really good; everyone should watch it. |
+| कृपया माइक्रोफोन अलि नजिक राख्नुहोस्। | Kripaya microphone ali najik rakhnuhos. | Please keep the microphone a little closer. |
+| हामीले आजै काम सक्नुपर्छ। | Haamile aajai kaam saknuparchha. | We have to finish the work today itself. |
+| उहाँहरू त्यहाँ रहे। | Uhaanharu tyahaan rahe. | They stayed there. |
+| यो ल्यापटपको ब्याट्री राम्रो छ, तर विन्डोज अपडेट ढिलो हुन्छ। | Yo laptopko battery raamro chha, tar Windows update dhilo hunchha. | This laptop's battery is good, but Windows updates are slow. |
+| मिटिङ साढे तीन बजे सुरु हुनेछ। | Meeting saadhe teen baje suru hunechha. | The meeting will start at 3:30. |
+| उहाँले दशैंमा घर जानुभयो। | Uhaanle Dashainma ghar jaanubhayo. | He/she went home for Dashain. |
+| यो काम सजिलो छैन, तर गर्न सकिन्छ। | Yo kaam sajilo chhaina, tar garna sakinchha. | This work isn't easy, but it can be done. |
+| मलाई थाहा छैन, उहाँ आउनुहुन्छ कि हुँदैन। | Malai thaahaa chhaina, uhaan aaunuhunchha ki hudaina. | I don't know whether he/she is coming. |
 
-## 8. Where this plugs into CutClipper
+## 8. Roman Nepali captions
+
+CutClipper can burn the Nepali caption track in either **Devanagari** or
+**Roman Nepali**. The choice is `CaptionSettings.nepali_script`
+(`"devanagari"` or `"roman"`) and appears in the Caption studio and the clip
+settings. The transcript editor stays in Devanagari; when Roman is selected,
+each line shows its Roman caption underneath, the live preview switches to
+Roman, and the SRT and rendered MP4 use Roman.
+
+### Scheme
+
+The scheme is practical Roman Nepali without diacritics, chosen to read like
+the Roman Nepali Nepali speakers already type:
+
+| Devanagari | Roman | Notes |
+|---|---|---|
+| आ | aa | Long ā is written aa. |
+| इ / ई | i / ee | The fallback keeps the distinction; the lexicon uses the conventional spelling for common words (thik, din). |
+| उ / ऊ | u / oo | Same rule; common words use conventional forms (guru, uniharu). |
+| ए / ऐ / ओ / औ | e / ai / o / au | |
+| अं / अँ | n (m before प फ ब भ म) | Anusvara assimilates to a labial nasal. |
+| क ख ग घ | k kh g gh | |
+| च छ ज झ | ch chh j jh | छ is always chh, so छ is chha. |
+| ट ठ ड ढ / त थ द ध | t th d dh / t th d dh | Retroflex and dental series merge, as in everyday Roman Nepali. |
+| प फ ब भ म | p ph b bh m | |
+| य र ल व | y r l b/w | व is b on its own (विकास → bikaas) and w inside a cluster (स्वागत → swaagat, द्वारा → dwara, विश्व → bishwa). |
+| श ष स ह | sh sh s h | |
+| क्ष त्र ज्ञ श्र | ksh tr gy shr | ज्ञ is /gy/ in Nepali, not jnya. |
+| ड़ / ढ़ | d / dh | ASR sometimes adds a nukta to plain ड/ढ; both read d/dh. |
+| ज़ / फ़ / क़ / ग़ | z / f / q / gh | Loanword sounds keep their Latin equivalents. |
+| । / ॥ | . | Danda becomes a full stop. |
+| ०–९ | 0–9 | Devanagari digits become ASCII digits. |
+
+Inherent **अ** is written as `a`, then deleted word-finally unless the final
+consonant follows a virama or is छ (`गर्न` → garna, `गर्छ` → garchha, `काम` →
+kaam, `राम` → raam). This is the rule that keeps `गर्न` and `काम` apart without
+a dictionary. Names and unusual words use this fallback; common words use the
+curated lexicon so their conventional spelling wins.
+
+### English stays English
+
+The romanizer never transliterates Latin text. It also runs the existing
+Devanagari → English glossary first, so known English loans keep their English
+spelling:
+
+- `यो भिडियो धेरै राम्रो छ` → `Yo video dherai raamro chha`
+- `विन्डोजमा` → `Windowsma`
+- `YouTubeमा` → `YouTubema` (Latin stem + Roman Nepali suffix)
+- `कम्पनीहरूले` → `companyharule`
+- `This is English.` → unchanged
+
+If a mixed token has an English word that is not in the glossary, the fallback
+writes it phonetically in Roman letters. Add the spelling to
+`backend/assets/nepali-english-terms.json` to keep it English.
+
+### Files and data
+
+- `backend/app/services/romanize.py` — transliterator, lexicon lookup, suffix
+  handling, sentence casing, and the segment/word helpers.
+- `backend/assets/nepali-roman-lexicon.json` — `words` for conventional
+  spellings and `suffixes` for case endings and plurals. Whole-word lookup runs
+  before longest-suffix decomposition, so an ordinary word is never split just
+  because it ends in a suffix-like string.
+- `backend/app/services/nepali_terms.py` — shared spelling corrections and the
+  English loanword glossary used by both the transcriber and romanizer.
+- `POST /api/captions/romanize` — romanizes segments for the live editor. The
+  renderer applies the same function server-side, so the preview, SRT, and
+  burned captions agree.
+- `backend/tests/test_romanize.py` — phrase-level and rendering tests.
+
+### Adding a word or fixing a spelling
+
+1. Add the Devanagari source to `words` in `nepali-roman-lexicon.json` only if
+   the conventional Roman spelling differs from the rule-based fallback (for
+   example `ठीक` → thik, `काठमाडौं` → Kathmandu, `दिए` → diye).
+2. Prefer whole words for irregular verb forms; use `suffixes` only for real
+   case endings and plurals.
+3. Keep English loanwords in the English glossary, not the Roman lexicon. The
+   romanizer will then preserve their Latin spelling.
+4. Add the phrase to `backend/tests/test_romanize.py` so the spelling cannot
+   regress.
+5. Names are the hardest fallback case. Use hotwords or add a lexicon entry if
+   a person or place has an established Roman spelling.
+
+## 9. Where this plugs into CutClipper
 
 - Language codes and detection: `backend/app/api/routes.py` (`ne`, `en` only;
   Hindi-like detections are folded into `ne` so the UI never offers Hindi).
@@ -503,10 +590,16 @@ Use these as ASR/translation smoke tests.
   `mixed`; `build_ass` keeps the requested font for Latin-only groups and uses
   a Devanagari fallback only for groups that contain Devanagari.
 - Devanagari → Latin glossary: `backend/assets/nepali-english-terms.json` and
-  `_english_term_for` in the transcriber.
+  `english_term_for` in `backend/app/services/nepali_terms.py`. The transcriber
+  applies it while normalising ASR words.
+- Roman Nepali: `backend/app/services/romanize.py`, the curated
+  `backend/assets/nepali-roman-lexicon.json`, and
+  `POST /api/captions/romanize`. `build_ass` applies the same transliterator
+  before grouping so the preview and burned output agree.
 - Nepali → English translation prompt: `backend/app/services/translator.py`.
   English-only lines are kept unchanged; only Nepali and mixed lines are sent
-  through translation.
+  through translation. Translation always uses the canonical Devanagari lines,
+  never the Roman display copy.
 - Dual-track burned captions and danda/spacing cleanup:
   `backend/app/pipeline/captions.py`.
 - Devanagari caption fonts: `frontend/src/lib/captionFonts.json`
@@ -514,7 +607,7 @@ Use these as ASR/translation smoke tests.
   Yatra One, Teko, Baloo 2).
 - Hotwords: `CUTCLIPPER_NEPALI_HOTWORDS` — names/places, not common words.
 
-## 9. Maintenance checklist
+## 10. Maintenance checklist
 
 When adding a Nepali correction or glossary entry:
 
@@ -526,3 +619,9 @@ When adding a Nepali correction or glossary entry:
 6. Keep word timings and token boundaries intact; never rewrite a word into
    multiple tokens unless the timing model can handle it.
 7. Prefer hotwords for names and places; keep corrections for non-words.
+8. For Roman Nepali, add conventional spellings to
+   `backend/assets/nepali-roman-lexicon.json` and a phrase test in
+   `backend/tests/test_romanize.py`. Do not add English loans there; add them
+   to `nepali-english-terms.json` so they stay in English.
+9. When changing the Roman scheme, update the table in section 8 and rerun
+   `pytest backend/tests/test_romanize.py`.

@@ -19,6 +19,7 @@ import {
   isRetryable,
   previewVideo,
   restyleJob,
+  romanizeCaptions,
   transcribeCaptions,
   translateCaptions,
   uploadVideo,
@@ -46,6 +47,7 @@ const DEVANAGARI_FONTS = new Set<CaptionFont>(
     (font) => font.name,
   ),
 )
+const DEVANAGARI_RE = /[ऀ-ॿ]/
 
 function AppContent() {
   const toast = useToast()
@@ -71,6 +73,8 @@ function AppContent() {
   const [clipTranslate, setClipTranslate] = useState(false)
   const [captionTranscript, setCaptionTranscript] = useState<TranscriptResponse | null>(null)
   const [captionSegments, setCaptionSegments] = useState<CaptionSegment[]>([])
+  const [captionRomanSegments, setCaptionRomanSegments] = useState<CaptionSegment[] | null>(null)
+  const [romanising, setRomanising] = useState(false)
   const [captionTranslation, setCaptionTranslation] = useState<CaptionSegment[] | null>(null)
   const [captionView, setCaptionView] = useState<'source' | 'translation'>('source')
   const [translatingCaptions, setTranslatingCaptions] = useState(false)
@@ -87,6 +91,9 @@ function AppContent() {
   const generationRef = useRef(false)
   const generationToken = useRef(0)
   const captionRequest = useRef(0)
+  const romanRequest = useRef(0)
+  const romanTimer = useRef<number | null>(null)
+  const captionScriptRef = useRef<CaptionSettings['nepali_script']>('devanagari')
   const restoreAttempted = useRef(false)
 
   const activeCaptionSegments =
@@ -125,6 +132,12 @@ function AppContent() {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }, [step])
+
+  // Keep the script choice readable from long-lived async callbacks (for
+  // example a transcription that was already running when Roman was chosen).
+  useEffect(() => {
+    captionScriptRef.current = captionSettings.nepali_script ?? 'devanagari'
+  }, [captionSettings.nepali_script])
 
   // Jobs render on the server, so a closed or reloaded tab can reconnect to
   // the work that is still running instead of losing it.
@@ -212,6 +225,60 @@ function AppContent() {
     }
   }, [toast, url])
 
+  const cancelRomanisation = useCallback(() => {
+    romanRequest.current += 1
+    if (romanTimer.current !== null) {
+      window.clearTimeout(romanTimer.current)
+      romanTimer.current = null
+    }
+    setRomanising(false)
+  }, [])
+
+  const loadRomanSegments = useCallback(
+    async (source: CaptionSegment[]) => {
+      const requestId = ++romanRequest.current
+      if (!source.length) {
+        setCaptionRomanSegments([])
+        setRomanising(false)
+        return
+      }
+      setRomanising(true)
+      try {
+        const response = await romanizeCaptions(source)
+        if (romanRequest.current !== requestId) return
+        setCaptionRomanSegments(response.segments)
+      } catch (error) {
+        if (romanRequest.current !== requestId) return
+        setCaptionRomanSegments(null)
+        toast.error(errorMessage(error))
+      } finally {
+        if (romanRequest.current === requestId) setRomanising(false)
+      }
+    },
+    [toast],
+  )
+
+  const scheduleRomanSegments = useCallback(
+    (source: CaptionSegment[]) => {
+      if (romanTimer.current !== null) window.clearTimeout(romanTimer.current)
+      // Mark the mirror stale immediately so the SRT button waits for the
+      // refreshed text instead of exporting the previous edit.
+      setRomanising(true)
+      romanTimer.current = window.setTimeout(() => {
+        romanTimer.current = null
+        void loadRomanSegments(source)
+      }, 250)
+    },
+    [loadRomanSegments],
+  )
+
+  useEffect(
+    () => () => {
+      if (romanTimer.current !== null) window.clearTimeout(romanTimer.current)
+    },
+    [],
+  )
+
   const loadCaptionTranscript = useCallback(
     async (
       uploadId: string,
@@ -231,7 +298,13 @@ function AppContent() {
         setCaptionSegments(response.segments)
         setCaptionTranslation(null)
         setCaptionView('source')
+        setCaptionRomanSegments(null)
+        cancelRomanisation()
         const translated = response.translated === true || task === 'translate'
+        const hasDevanagari = response.segments.some((segment) => DEVANAGARI_RE.test(segment.text))
+        if (!translated && hasDevanagari && captionScriptRef.current === 'roman') {
+          void loadRomanSegments(response.segments)
+        }
         // Auto-detection can return Nepali even when the user left the language
         // on "Detect language". Switch the editor to a Devanagari face in that
         // case too, not only when नेपाली was chosen explicitly.
@@ -256,7 +329,7 @@ function AppContent() {
         if (captionRequest.current === requestId) setCaptionLoading(false)
       }
     },
-    [captionQuality, captionTask, toast],
+    [cancelRomanisation, captionQuality, captionTask, loadRomanSegments, toast],
   )
 
   const updateActiveCaptionSegments = useCallback(
@@ -269,8 +342,35 @@ function AppContent() {
       // Editing the source lines invalidates the previous English pass.
       setCaptionTranslation(null)
       setCaptionView('source')
+      // The canonical edit is Devanagari; refresh the Roman mirror after the
+      // user pauses so the live preview matches the next render.
+      if (captionScriptRef.current === 'roman') {
+        scheduleRomanSegments(next)
+      }
     },
-    [captionTranslation, captionView],
+    [captionTranslation, captionView, scheduleRomanSegments],
+  )
+
+  const changeCaptionSettings = useCallback(
+    (next: CaptionSettings) => {
+      const nextScript = next.nepali_script ?? 'devanagari'
+      const scriptChanged = captionScriptRef.current !== nextScript
+      captionScriptRef.current = nextScript
+      setCaptionSettings(next)
+      if (scriptChanged) {
+        if (nextScript === 'roman') {
+          if (captionSegments.length) {
+            scheduleRomanSegments(captionSegments)
+          } else {
+            setCaptionRomanSegments(null)
+          }
+        } else {
+          // Devanagari is the canonical text; stop any pending mirror work.
+          cancelRomanisation()
+        }
+      }
+    },
+    [cancelRomanisation, captionSegments, scheduleRomanSegments],
   )
 
   const translateGeneratedCaptions = useCallback(async () => {
@@ -301,6 +401,8 @@ function AppContent() {
   const uploadLocalFile = useCallback(
     async (file: File) => {
       captionRequest.current += 1
+      cancelRomanisation()
+      setCaptionRomanSegments(null)
       setCaptionLoading(false)
       setCaptionTranslation(null)
       setCaptionView('source')
@@ -348,7 +450,7 @@ function AppContent() {
         setUpload(null)
       }
     },
-    [captionLanguage, captionQuality, loadCaptionTranscript, sourceMode, toast],
+    [cancelRomanisation, captionLanguage, captionQuality, loadCaptionTranscript, sourceMode, toast],
   )
 
   const clearPreviewError = useCallback(() => {
@@ -406,6 +508,8 @@ function AppContent() {
   const backToLink = useCallback(() => {
     generationToken.current += 1
     captionRequest.current += 1
+    cancelRomanisation()
+    setCaptionRomanSegments(null)
     setCaptionLoading(false)
     setCancelRequested(false)
     setPreview(null)
@@ -418,7 +522,7 @@ function AppContent() {
     setCaptionError(null)
     setStep('link')
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [])
+  }, [cancelRomanisation])
 
   const startRender = useCallback(async () => {
     if (!preview || generationRef.current) return
@@ -613,6 +717,8 @@ function AppContent() {
   const startOver = useCallback(() => {
     generationToken.current += 1
     captionRequest.current += 1
+    cancelRomanisation()
+    setCaptionRomanSegments(null)
     setCaptionLoading(false)
     clearActiveJob()
     setCancelRequested(false)
@@ -646,7 +752,7 @@ function AppContent() {
     setCancelling(false)
     handledStatus.current = null
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [])
+  }, [cancelRomanisation])
 
   const editSettings = useCallback(() => {
     const captionJob = createdJob?.mode === 'captions'
@@ -713,6 +819,8 @@ function AppContent() {
                   transcript={captionTranscript}
                   segments={activeCaptionSegments}
                   sourceSegments={captionSegments}
+                  romanSegments={captionRomanSegments}
+                  romanising={romanising}
                   loading={captionLoading}
                   error={captionError}
                   language={captionLanguage}
@@ -757,7 +865,7 @@ function AppContent() {
                   onExportResolutionChange={setCaptionResolution}
                   onExportQualityChange={setCaptionExportQuality}
                   captions={captionSettings}
-                  onCaptionsChange={setCaptionSettings}
+                  onCaptionsChange={changeCaptionSettings}
                   onBack={backToLink}
                   onRender={startCaptionRender}
                   generating={generating}
@@ -862,8 +970,8 @@ function SiteFooter() {
                 GitHub
               </a>
               <span className="inline-flex items-center gap-1 font-hand text-[15px]">
-                made with <Heart className="h-3 w-3 fill-tomato text-tomato" aria-hidden="true" /> on
-                paper
+                made with <Heart className="h-3 w-3 fill-tomato text-tomato" aria-hidden="true" />{' '}
+                on paper
               </span>
             </div>
           </div>

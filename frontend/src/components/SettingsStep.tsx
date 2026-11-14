@@ -13,6 +13,7 @@ import {
   ScanFace,
   SlidersHorizontal,
   Sparkles,
+  Type,
   WandSparkles,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -37,7 +38,7 @@ import {
 import { assetUrl } from '../lib/api'
 import { Button, RangeField, SectionCard, Toggle } from './ui'
 import { CaptionPreview } from './CaptionPreview'
-import { CaptionStyleControls } from './CaptionControls'
+import { CaptionStyleControls, NepaliScriptToggle } from './CaptionControls'
 
 interface SettingsStepProps {
   preview: PreviewResponse
@@ -691,6 +692,25 @@ export function SettingsStep({
                         : 'Nepali is detected automatically and always uses the fine-tuned model. For other languages, Fast / Balanced / Best map to base / small / medium.'}
                   </p>
                 </div>
+                {captionLanguage !== 'en' && !translateCaptions ? (
+                  <div className="flex flex-col gap-3 rounded-xl border-[1.5px] border-ink/25 bg-paper p-3.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="flex items-center gap-1.5 text-[11.5px] font-semibold text-ink">
+                        <Type className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
+                        Nepali caption script
+                      </p>
+                      <p className="mt-0.5 text-[10px] leading-4 text-ink-soft">
+                        Roman writes the Nepali words in Latin letters; English words in the speech
+                        stay in English. Applies when Nepali is detected.
+                      </p>
+                    </div>
+                    <NepaliScriptToggle
+                      value={settings.captions.nepali_script ?? 'devanagari'}
+                      onChange={(nepali_script) => updateCaptions({ nepali_script })}
+                      devanagariFont={settings.captions.secondary_font}
+                    />
+                  </div>
+                ) : null}
                 <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />
               </div>
             ) : (

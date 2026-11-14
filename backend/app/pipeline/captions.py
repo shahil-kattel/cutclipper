@@ -18,7 +18,9 @@ from app.schemas import (
     CaptionStyle,
     CaptionTextCase,
     CaptionWord,
+    NepaliScript,
 )
+from app.services.romanize import romanize_words
 
 _SAFE_SIDE_FRACTION = 0.095
 _MAX_LINES = 2
@@ -249,7 +251,7 @@ def _separator(word_spacing: float, letter_spacing: float) -> str:
 
     if word_spacing <= 0:
         return " "
-    return f"{{\\fsp{word_spacing + letter_spacing:g}}} " f"{{\\fsp{letter_spacing:g}}}"
+    return f"{{\\fsp{word_spacing + letter_spacing:g}}} {{\\fsp{letter_spacing:g}}}"
 
 
 def _space_width(font_size: int) -> float:
@@ -269,7 +271,7 @@ def _typed_word_text(word: _WordRef, reveal_before: float) -> str:
         return f"{{\\alpha&HFF&}}{word.text}{{\\alpha&H00&}}"
     if visible >= len(word.text):
         return word.text
-    return f"{word.text[:visible]}" f"{{\\alpha&HFF&}}{word.text[visible:]}{{\\alpha&H00&}}"
+    return f"{word.text[:visible]}{{\\alpha&HFF&}}{word.text[visible:]}{{\\alpha&H00&}}"
 
 
 def _word_style_tags(
@@ -299,7 +301,7 @@ def _word_style_tags(
     if style == CaptionStyle.POP:
         if active:
             return (
-                f"{{\\alpha&H00&\\c{active_ink}\\fscx114\\fscy114" "\\t(0,130,\\fscx100\\fscy100)}",
+                f"{{\\alpha&H00&\\c{active_ink}\\fscx114\\fscy114\\t(0,130,\\fscx100\\fscy100)}}",
                 f"{{\\c{base}}}",
             )
         return "", ""
@@ -429,9 +431,9 @@ def _group_entrance_tag(
             "\\t(0,150,\\fscx100\\fscy100\\frz0)\\fad(60,80)}"
         )
     if line_style == CaptionStyle.TILT:
-        return f"{{\\an{alignment}\\pos({x},{y})\\q0\\frz-5" "\\t(0,360,\\frz0)\\fad(160,100)}"
+        return f"{{\\an{alignment}\\pos({x},{y})\\q0\\frz-5\\t(0,360,\\frz0)\\fad(160,100)}}"
     if line_style == CaptionStyle.SOFT_BLUR:
-        return f"{{\\an{alignment}\\pos({x},{y})\\q0\\blur4" "\\t(0,320,\\blur0)\\fad(160,120)}"
+        return f"{{\\an{alignment}\\pos({x},{y})\\q0\\blur4\\t(0,320,\\blur0)\\fad(160,120)}}"
     if line_style == CaptionStyle.MINIMAL:
         return f"{{\\an{alignment}\\pos({x},{y})\\q0}}{{\\fad(100,120)}}"
     return f"{{\\an{alignment}\\pos({x},{y})\\q0}}"
@@ -472,7 +474,7 @@ def _word_event_entrance_tag(
         dy = round(height * dy_fraction)
         eased = 1 - (1 - progress) ** 3
         dy_now = round(dy * (1 - eased))
-        return f"{{\\an{anchor}\\move({x},{y + dy_now},{x},{y},0,{remaining})" f"\\q0{fade_tags}}}"
+        return f"{{\\an{anchor}\\move({x},{y + dy_now},{x},{y},0,{remaining})\\q0{fade_tags}}}"
     if line_style == CaptionStyle.ZOOM_IN:
         scale = round(84 + 16 * progress)
         return (
@@ -492,8 +494,7 @@ def _word_event_entrance_tag(
         eased = 1 - (1 - progress) ** 3
         rotation = round(-5 * (1 - eased))
         return (
-            f"{{\\an{anchor}\\pos({x},{y})\\q0\\frz{rotation}"
-            f"\\t(0,{remaining},\\frz0){fade_tags}}}"
+            f"{{\\an{anchor}\\pos({x},{y})\\q0\\frz{rotation}\\t(0,{remaining},\\frz0){fade_tags}}}"
         )
     if line_style == CaptionStyle.SOFT_BLUR:
         eased = 1 - (1 - progress) ** 3
@@ -704,6 +705,15 @@ def build_ass(
 ) -> CaptionRenderResult:
     """Render a subtitle file for a clip. Returns zero events when there is no speech."""
 
+    if settings.nepali_script == NepaliScript.ROMAN:
+        # English words and mixed tokens keep their Latin spelling; only the
+        # Devanagari portions are transliterated. Doing this before grouping
+        # keeps the width estimates and line breaks consistent with the text
+        # that actually burns into the video.
+        words = romanize_words(words)
+        if secondary_words:
+            secondary_words = romanize_words(secondary_words)
+
     base_colour = settings.color
     active_colour = settings.highlight_color
     width, height = output_size
@@ -749,8 +759,13 @@ def build_ass(
     # the chosen typeface instead of the whole track switching to Mukta.
     caption_font = settings.font
     secondary_font_size = max(1, round(font_size * _SECONDARY_SIZE_RATIO))
+    # Roman Nepali is Latin text, so it uses the same face the user picked for
+    # the main caption line. Devanagari keeps its own secondary font.
+    secondary_requested_font = (
+        settings.font if settings.nepali_script == NepaliScript.ROMAN else settings.secondary_font
+    )
     secondary_font = (
-        _caption_font_for(secondary_refs, settings.secondary_font) if secondary_refs else ""
+        _caption_font_for(secondary_refs, secondary_requested_font) if secondary_refs else ""
     )
     bold = -1 if settings.font_style in (CaptionFontStyle.BOLD, CaptionFontStyle.BOLD_ITALIC) else 0
     italic = (

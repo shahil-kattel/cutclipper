@@ -283,7 +283,13 @@ export function CaptionPreview({
   const font = captionFontOption(
     captionFontForText(settings.font, group?.words.map((word) => word.text).join(' ') ?? ''),
   )
-  const secondaryFont = captionFontOption(settings.secondary_font ?? 'Mukta')
+  // Roman Nepali is Latin text, so it uses the main caption face. Devanagari
+  // keeps the separate Nepali font the user picked.
+  const secondaryFont = captionFontOption(
+    settings.nepali_script === 'roman'
+      ? captionFontForText(settings.font, secondary?.text ?? '')
+      : (settings.secondary_font ?? 'Mukta'),
+  )
   const resolvedFontSize =
     fontSize ??
     Math.max(12, Math.min(72, (settings.font_size / 1080) * Math.max(220, width || 320)))

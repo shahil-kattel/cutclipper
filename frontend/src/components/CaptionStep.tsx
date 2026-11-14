@@ -37,7 +37,7 @@ import { cn, formatDuration } from '../lib/utils'
 import { useToast } from '../hooks/useToast'
 import { Button, Pill, SectionCard } from './ui'
 import { CaptionPreview } from './CaptionPreview'
-import { CaptionStyleControls, CaptionToggleRow } from './CaptionControls'
+import { CaptionStyleControls, CaptionToggleRow, NepaliScriptToggle } from './CaptionControls'
 
 interface CaptionStepProps {
   preview: PreviewResponse
@@ -45,6 +45,9 @@ interface CaptionStepProps {
   segments: CaptionSegment[]
   /** The original spoken-language lines, kept for the bilingual preview. */
   sourceSegments: CaptionSegment[]
+  /** Roman Nepali mirror of the source lines, when the script is set to Roman. */
+  romanSegments: CaptionSegment[] | null
+  romanising: boolean
   loading: boolean
   error: string | null
   language: string
@@ -185,6 +188,8 @@ export function CaptionStep({
   transcript,
   segments,
   sourceSegments,
+  romanSegments,
+  romanising,
   loading,
   error,
   language,
@@ -235,6 +240,23 @@ export function CaptionStep({
     transcript?.language === 'ne' || language === 'ne'
       ? 'नेपाली'
       : (transcript?.language?.toUpperCase() ?? 'Original')
+  const nepaliScript = captions.nepali_script ?? 'devanagari'
+  const hasNepaliSource =
+    nepaliMode || sourceSegments.some((segment) => DEVANAGARI_RE.test(segment.text))
+  const romanScript = nepaliScript === 'roman' && hasNepaliSource
+  const romanSourceSegments = romanSegments ?? sourceSegments
+  // The source track is the Nepali one; the translated track is English and
+  // never changes script. In bilingual view the Roman line is the secondary
+  // track above the English subtitle.
+  const primaryPreviewSegments =
+    romanScript && captionView === 'source' ? romanSourceSegments : segments
+  const secondaryPreviewSegments = romanScript ? romanSourceSegments : sourceSegments
+  const romanByStart = new Map(
+    (romanSegments ?? []).map((segment) => [segment.start.toFixed(3), segment]),
+  )
+  const srtSegments =
+    romanScript && captionView === 'source' && romanSegments ? romanSegments : segments
+  const srtNeedsRoman = romanScript && captionView === 'source' && (!romanSegments || romanising)
 
   const updateSegment = (index: number, patch: Partial<CaptionSegment>) => {
     const next = segments.map((segment, position) =>
@@ -468,10 +490,10 @@ export function CaptionStep({
               />
               <CaptionPreview
                 settings={captions}
-                segments={segments}
+                segments={primaryPreviewSegments}
                 secondarySegments={
                   captionView === 'translation' && captions.secondary_enabled
-                    ? sourceSegments
+                    ? secondaryPreviewSegments
                     : undefined
                 }
                 words={transcript?.words ?? []}
@@ -576,6 +598,28 @@ export function CaptionStep({
               </div>
             ) : null}
 
+            {!loading && task !== 'translate' && hasNepaliSource ? (
+              <div className="mb-4 flex flex-col gap-3 rounded-xl border-[1.5px] border-ink/25 bg-paper p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="flex items-center gap-1.5 text-[11.5px] font-semibold text-ink">
+                    <Type className="h-3.5 w-3.5 text-tomato" aria-hidden="true" />
+                    Nepali caption script
+                  </p>
+                  <p className="mt-0.5 max-w-xl text-[10px] leading-4 text-ink-soft">
+                    Roman writes the Nepali words in Latin letters; English words in the speech stay
+                    in English either way. The transcript editor stays in Devanagari and shows the
+                    Roman caption underneath each line.
+                  </p>
+                </div>
+                <NepaliScriptToggle
+                  value={nepaliScript}
+                  onChange={(value) => onCaptionsChange({ ...captions, nepali_script: value })}
+                  busy={romanising}
+                  devanagariFont={captions.secondary_font}
+                />
+              </div>
+            ) : null}
+
             {!loading && task !== 'translate' && hasTranslation ? (
               <div className="mb-4 space-y-2.5 rounded-xl border-[1.5px] border-ink/25 bg-paper p-3">
                 <CaptionToggleRow
@@ -585,9 +629,13 @@ export function CaptionStep({
                   }
                   title="Keep the Nepali line in the video"
                   ariaLabel="Burn the Nepali subtitle line"
-                  note="Burns the Nepali source text in a Devanagari font above the English subtitle. Both lines share the same timing and position."
+                  note={
+                    romanScript
+                      ? 'Burns the Roman Nepali source line above the English subtitle in your main caption typeface. Both lines share the same timing and position.'
+                      : 'Burns the Nepali source text in a Devanagari font above the English subtitle. Both lines share the same timing and position.'
+                  }
                 />
-                {captions.secondary_enabled ? (
+                {captions.secondary_enabled && nepaliScript === 'devanagari' ? (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ink/20 bg-paper-soft px-2.5 py-2">
                     <label
                       htmlFor="secondary-caption-font"
@@ -618,6 +666,12 @@ export function CaptionStep({
                       नेपाली
                     </span>
                   </div>
+                ) : null}
+                {captions.secondary_enabled && nepaliScript === 'roman' ? (
+                  <p className="rounded-lg border border-ink/20 bg-paper-soft px-2.5 py-2 text-[10.5px] leading-4 text-ink-soft">
+                    Roman Nepali uses the main caption typeface. Switch to देवनागरी to choose a
+                    separate Nepali font.
+                  </p>
                 ) : null}
               </div>
             ) : null}
@@ -685,6 +739,11 @@ export function CaptionStep({
                     duration={preview.duration}
                     active={index === activeIndex || index === selectedSegment}
                     canMerge={index + 1 < segments.length}
+                    showRomanHint={
+                      romanScript && captionView === 'source' && DEVANAGARI_RE.test(segment.text)
+                    }
+                    romanText={romanByStart.get(segment.start.toFixed(3))?.text}
+                    romanising={romanising}
                     onChange={(patch) => updateSegment(index, patch)}
                     onFocus={() => setSelectedSegment(index)}
                     onPlay={() => jumpTo(segment.start)}
@@ -892,11 +951,16 @@ export function CaptionStep({
                   size="sm"
                   variant="secondary"
                   icon={FileText}
+                  loading={srtNeedsRoman}
                   onClick={() =>
-                    downloadSrt(segments, `${preview.title || 'cutclipper-captions'}.srt`)
+                    downloadSrt(srtSegments, `${preview.title || 'cutclipper-captions'}.srt`)
                   }
-                  disabled={!segments.length}
-                  aria-label="Download captions as an SRT file"
+                  disabled={!segments.length || srtNeedsRoman}
+                  aria-label={
+                    romanScript && captionView === 'source'
+                      ? 'Download Roman Nepali captions as an SRT file'
+                      : 'Download captions as an SRT file'
+                  }
                 >
                   .SRT
                 </Button>
@@ -926,6 +990,9 @@ function SegmentRow({
   duration,
   active,
   canMerge,
+  showRomanHint,
+  romanText,
+  romanising,
   onChange,
   onFocus,
   onPlay,
@@ -938,6 +1005,9 @@ function SegmentRow({
   duration: number
   active: boolean
   canMerge: boolean
+  showRomanHint: boolean
+  romanText?: string
+  romanising: boolean
   onChange: (patch: Partial<CaptionSegment>) => void
   onFocus: () => void
   onPlay: () => void
@@ -1006,6 +1076,15 @@ function SegmentRow({
         className="mt-1.5 w-full resize-none rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[12.5px] font-medium leading-5 text-ink focus:border-ink/30 focus:bg-paper-soft focus:outline-none"
         aria-label={`Caption ${index + 1} text`}
       />
+      {showRomanHint ? (
+        <p
+          className="mt-0.5 line-clamp-2 min-h-4 px-1 text-[10.5px] leading-4 text-ink-faint"
+          title={romanText}
+        >
+          <span className="mr-1 font-bold uppercase tracking-[0.08em] text-ink-soft/70">Roman</span>
+          {romanText ?? (romanising ? 'Transliterating…' : '—')}
+        </p>
+      ) : null}
     </div>
   )
 }
