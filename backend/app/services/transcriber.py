@@ -1203,9 +1203,7 @@ async def _repair_accurate_gaps(
         on_progress(0.97, "Checking every spoken section was captioned")
     regions = await _speech_regions(audio_path, duration, settings, cancel_event=cancel_event)
     if regions is None:
-        warnings.append(
-            "The audio could not be checked for missed speech; some quiet words " "may be missing."
-        )
+        warnings.append("The audio could not be checked for missed speech.")
         return words, warnings
     if not regions:
         return words, warnings

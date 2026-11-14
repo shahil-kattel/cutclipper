@@ -341,11 +341,11 @@ Nepali and must not trigger a language warning on their own:
 - **लेकिन** and **बहुत** are understood and used in Nepali, though तर and धेरै
   are the standard/native choices. Treat them as weak evidence, not proof.
 
-The Hindi warning fires at **3+ hits and ≥2% token density**. The marker set
-now excludes गए, रहे, रही, बहुत, and लेकिन because they are valid or common in
-Nepali; keep the density check, since code-mixed Nepali can contain a few
-genuine Hindi words. Strong markers such as है/हैं/था/थी/थे/हुआ/हुई/हुए/किया/
-गया/गयी/होगा/सबने/अभी/कितना remain.
+Language detection is limited to Nepali and English. A Hindi-like detection is
+folded into Nepali, so the fine-tuned model is used and the UI never offers
+Hindi or warns about it. These discriminators therefore serve manual review of
+unclear audio, not an automatic warning. गए, रहे, रही, दिए, लिए, बहुत, and
+लेकिन remain valid or common Nepali and must not be treated as Hindi-only.
 
 ### Parallel examples
 
