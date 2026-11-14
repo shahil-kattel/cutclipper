@@ -161,6 +161,16 @@ _PHRASE_REPLACEMENTS = (
     (re.compile(r"(?<!\S)वि\s+एर\s+गेटिङ(?!\S)", re.IGNORECASE), "we are getting"),
     (re.compile(r"(?<!\S)हेर्ने\s+पर\s+सुविधा(?!\S)"), "हेर्ने पनि सुविधा"),
     (re.compile(r"(?<!\S)कुरा\s+बाको(?!\S)"), "कुरा बाँकी"),
+    # The tech channel name and product model are spoken as separate words
+    # by the Nepali fine-tune; keep the Latin spelling intact.
+    (re.compile(r"(?<!\S)टेक\s+पानामा(?!\S)"), "TechPanaमा"),
+    (re.compile(r"(?<!\S)Honor\s+X\s+seven\s+बी(?!\S)"), "Honor X7b"),
+    (re.compile(r"(?<!\S)सेन\s+(camera\S*)"), r"main \1"),
+    # Honor review: English spec phrases that the fine-tune split across
+    # Devanagari and Latin tokens.
+    (re.compile(r"(?<!\S)थर\s+layer(?!\S)"), "third layer"),
+    (re.compile(r"(?<!\S)volume\s+एन\s+stereo\s+साउन(?!\S)"), "volume and stereo sound"),
+    (re.compile(r"(?<!\S)फूल\s+view(?!\S)"), "full view"),
 )
 
 _CHATGPT_SPLIT_RE = re.compile(
@@ -238,6 +248,7 @@ _CORRECTION_SUFFIXES = tuple(
             "बिना",
             "विना",
             "बाहेक",
+            "सहित",
             "द्वारा",
             "को",
             "का",
@@ -344,6 +355,14 @@ def correct_word_in_context(
     # Convert only when the surrounding word is Latin, or the token itself
     # mixes Latin letters with Devanagari digits.
     if any(char in _DEVANAGARI_DIGIT_CHARS for char in core):
+        # Long runs are phone numbers, IMEIs, and serials rather than prose
+        # numerals, so they read better in ASCII in every context.
+        if len(core) >= 5 and all(char in _DEVANAGARI_DIGIT_CHARS for char in core):
+            return _as_ascii_digits(core) + trailing
+        if next_word:
+            following = _strip_trailing_punctuation(next_word)[0]
+            if following.startswith(("रूपैयाँ", "रुपैयाँ", "रूपैया", "रुपैया", "छुट")):
+                return _as_ascii_digits(core) + trailing
         if _has_ascii_letter(core):
             return _as_ascii_digits(core) + trailing
         if previous_words:
@@ -444,6 +463,7 @@ NEPALI_CASE_SUFFIXES = tuple(
             "बिना",
             "विना",
             "बाहेक",
+            "सहित",
             "द्वारा",
             "को",
             "का",

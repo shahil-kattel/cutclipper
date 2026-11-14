@@ -108,6 +108,12 @@ def test_real_interview_words_use_conventional_roman_forms() -> None:
     assert romanize_token("भन्नुहुँदा") == "bhannuhunda"
     assert romanize_token("गाह्रो") == "gahro"
     assert romanize_token("अफ्ठ्यारो") == "afthyaaro"
+    assert romanize_token("आइपुगेको") == "aipugeko"
+    assert romanize_token("सक्छौँ") == "sakchhau"
+    assert romanize_token("दाबी") == "dabi"
+    assert romanize_token("रूपैयाँमा") == "rupaiyanma"
+    assert romanize_token("अर्थात्सहित") == "arthatsahit"
+    assert romanize_token("आधिकारिक") == "adhikarik"
 
 
 def test_common_school_and_health_loans_stay_english() -> None:

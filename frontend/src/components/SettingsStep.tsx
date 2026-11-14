@@ -281,69 +281,88 @@ export function SettingsStep({
               </p>
             ) : null}
 
-            <div className="mt-5 grid gap-4 border-t border-dashed border-ink/20 pt-5 sm:grid-cols-2">
-              <div>
-                <p className="mb-2 text-[12.5px] font-semibold text-ink">Resolution</p>
-                <div role="group" aria-label="Export resolution" className="grid grid-cols-2 gap-2">
-                  {RESOLUTION_OPTIONS.map((option) => {
-                    const selected = settings.resolution === option.value
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => update({ resolution: option.value })}
-                        className={cn(
-                          'rounded-lg border px-2.5 py-2 text-left transition',
-                          selected
-                            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
-                            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
-                        )}
-                      >
-                        <span className="block text-[12px] font-semibold">{option.label}</span>
-                        <span className="mt-0.5 block text-[9px] uppercase tracking-[0.1em] text-ink-faint">
-                          {option.detail}
-                        </span>
-                      </button>
-                    )
-                  })}
+            <details className="group mt-5 border-t border-dashed border-ink/20 pt-5">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11.5px] font-semibold text-ink-soft transition hover:text-ink">
+                <span>Advanced export settings</span>
+                <span className="hidden items-center gap-2 text-[10px] font-medium text-ink-faint sm:flex">
+                  {settings.resolution.toUpperCase()} · {settings.export_quality}
+                  <span className="transition group-open:rotate-180" aria-hidden="true">
+                    ▾
+                  </span>
+                </span>
+              </summary>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="mb-2 text-[12.5px] font-semibold text-ink">Resolution</p>
+                  <div
+                    role="group"
+                    aria-label="Export resolution"
+                    className="grid grid-cols-2 gap-2"
+                  >
+                    {RESOLUTION_OPTIONS.map((option) => {
+                      const selected = settings.resolution === option.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => update({ resolution: option.value })}
+                          className={cn(
+                            'rounded-lg border px-2.5 py-2 text-left transition',
+                            selected
+                              ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                              : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                          )}
+                        >
+                          <span className="block text-[12px] font-semibold">{option.label}</span>
+                          <span className="mt-0.5 block text-[9px] uppercase tracking-[0.1em] text-ink-faint">
+                            {option.detail}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-[12.5px] font-semibold text-ink">Video quality</p>
+                  <div
+                    role="group"
+                    aria-label="Export quality"
+                    className="grid grid-cols-3 gap-1.5"
+                  >
+                    {QUALITY_OPTIONS.map((option) => {
+                      const selected = settings.export_quality === option.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => update({ export_quality: option.value })}
+                          className={cn(
+                            'rounded-lg border px-1.5 py-2 text-center transition',
+                            selected
+                              ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
+                              : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
+                          )}
+                        >
+                          <span className="block text-[11px] font-semibold">{option.label}</span>
+                          <span className="mt-0.5 block text-[8px] uppercase tracking-[0.08em] text-ink-faint">
+                            {option.detail}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
-              <div>
-                <p className="mb-2 text-[12.5px] font-semibold text-ink">Video quality</p>
-                <div role="group" aria-label="Export quality" className="grid grid-cols-3 gap-1.5">
-                  {QUALITY_OPTIONS.map((option) => {
-                    const selected = settings.export_quality === option.value
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => update({ export_quality: option.value })}
-                        className={cn(
-                          'rounded-lg border px-1.5 py-2 text-center transition',
-                          selected
-                            ? 'border-[1.5px] border-ink bg-mustard-soft text-ink shadow-[2px_2px_0_#211d19]'
-                            : 'border-[1.5px] border-ink/25 bg-paper-soft text-ink-soft hover:border-ink hover:text-ink',
-                        )}
-                      >
-                        <span className="block text-[11px] font-semibold">{option.label}</span>
-                        <span className="mt-0.5 block text-[8px] uppercase tracking-[0.08em] text-ink-faint">
-                          {option.detail}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-            <p className="mt-2.5 text-[10px] leading-4 text-ink-faint">
-              {settings.export_quality === 'lossless'
-                ? 'Lossless video (CRF 0) keeps every pixel but uses software encoding, can produce multi-GB files, and some social platforms reject lossless H.264. Use Maximum for near-lossless uploads.'
-                : settings.resolution === '4k'
-                  ? '4K exports render about twice as long and create much larger files. Choose Lossless for a bit-exact video stream.'
-                  : 'High is visually clean for social. Pick 4K for a 2160-pixel-wide master.'}
-            </p>
+              <p className="mt-2.5 text-[10px] leading-4 text-ink-faint">
+                {settings.export_quality === 'lossless'
+                  ? 'Lossless video (CRF 0) keeps every pixel but uses software encoding, can produce multi-GB files, and some social platforms reject lossless H.264. Use Maximum for near-lossless uploads.'
+                  : settings.resolution === '4k'
+                    ? '4K exports render about twice as long and create much larger files. Choose Lossless for a bit-exact video stream.'
+                    : 'High is visually clean for social. Pick 4K for a 2160-pixel-wide master.'}
+              </p>
+            </details>
           </SectionCard>
 
           <SectionCard
@@ -735,7 +754,24 @@ export function SettingsStep({
                     </div>
                   </div>
                 ) : null}
-                <CaptionStyleControls settings={settings.captions} onChange={updateCaptions} />
+                <details className="group rounded-xl border-[1.5px] border-ink/25 bg-paper p-3.5">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[11.5px] font-semibold text-ink transition hover:text-tomato">
+                    <span>Caption style &amp; animation</span>
+                    <span className="hidden items-center gap-2 text-[9.5px] font-medium text-ink-faint sm:flex">
+                      Font, size, colors, motion
+                      <span className="transition group-open:rotate-180" aria-hidden="true">
+                        ▾
+                      </span>
+                    </span>
+                  </summary>
+                  <div className="mt-4">
+                    <CaptionStyleControls
+                      settings={settings.captions}
+                      onChange={updateCaptions}
+                      showHeader={false}
+                    />
+                  </div>
+                </details>
               </div>
             ) : (
               <div className="flex flex-col items-start justify-between gap-3 rounded-xl border-[1.5px] border-dashed border-ink/30 bg-paper-soft px-3.5 py-3 sm:flex-row sm:items-center">

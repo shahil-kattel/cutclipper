@@ -270,40 +270,42 @@ export function ResultsStep({
         <div className="grid w-full grid-cols-2 gap-2.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center lg:justify-end">
           {onEditCaptions ? (
             <Button variant="secondary" size="sm" onClick={onEditCaptions} icon={Captions}>
-              Edit caption text
+              Edit captions
             </Button>
           ) : null}
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={FileText}
-            disabled={!primaryCaptionSegments.length}
-            onClick={() =>
-              downloadSrt(
-                primaryCaptionSegments,
-                `${job.video?.title || 'cutclipper-captions'}.srt`,
-              )
-            }
-          >
-            Download .SRT
-          </Button>
-          {!editingCaptions ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setEditingCaptions(true)}
-              icon={Palette}
-              aria-expanded={false}
-            >
-              {captionMode || job.settings.captions.enabled
-                ? 'Edit captions before export'
-                : 'Add subtitles'}
-            </Button>
-          ) : null}
-          {canEditSettings ? (
-            <Button variant="ghost" size="sm" onClick={onEditSettings} icon={ArrowLeft}>
-              {captionMode ? 'Edit caption lines' : 'Adjust cut settings'}
-            </Button>
+          {!captionMode ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={FileText}
+                disabled={!primaryCaptionSegments.length}
+                onClick={() =>
+                  downloadSrt(
+                    primaryCaptionSegments,
+                    `${job.video?.title || 'cutclipper-captions'}.srt`,
+                  )
+                }
+              >
+                Download .SRT
+              </Button>
+              {!editingCaptions ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setEditingCaptions(true)}
+                  icon={Palette}
+                  aria-expanded={false}
+                >
+                  {job.settings.captions.enabled ? 'Edit captions before export' : 'Add subtitles'}
+                </Button>
+              ) : null}
+              {canEditSettings ? (
+                <Button variant="ghost" size="sm" onClick={onEditSettings} icon={ArrowLeft}>
+                  Adjust cut settings
+                </Button>
+              ) : null}
+            </>
           ) : null}
           <Button variant="secondary" size="sm" onClick={onNewProject} icon={RotateCcw}>
             New video
@@ -369,30 +371,43 @@ export function ResultsStep({
             onDownloadClip={() => void downloadLatest({ clipIndex: activePreviewClip.index })}
             captionEditor={
               (captionMode || job.settings.captions.enabled) && !editingCaptions ? (
-                <CaptionQuickEdit
-                  job={job}
-                  segments={previewCaptionSegments}
-                  romanSegments={captionRomanSegments}
-                  script={captionScript}
-                  captionTrack={captionTrack}
-                  onCaptionTrackChange={setCaptionTrack}
-                  englishSegments={englishCaptionSegments}
-                  translatingEnglish={translatingEnglish}
-                  onTranslateEnglish={onTranslateEnglish}
-                  draft={captionDraft}
-                  onDraftChange={updateCaptionDraft}
-                  preparing={preparingVideo}
-                  onDownload={() => void downloadLatest({ clipIndex: activePreviewClip.index })}
-                  onEditLines={() => onEditCaptions?.()}
-                  onOpenFull={() => {
-                    setEditingCaptions(true)
-                    window.requestAnimationFrame(() => {
-                      document
-                        .getElementById('caption-export-studio')
-                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    })
-                  }}
-                />
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl border-[1.5px] border-ink/25 bg-paper-soft px-3.5 py-2.5 text-[11px] font-semibold text-ink transition hover:border-ink hover:bg-mustard-soft">
+                    <span>Customize caption style</span>
+                    <span className="hidden items-center gap-2 text-[9.5px] font-medium text-ink-faint sm:flex">
+                      Font, size, position, density
+                      <span className="transition group-open:rotate-180" aria-hidden="true">
+                        ▾
+                      </span>
+                    </span>
+                  </summary>
+                  <div className="mt-2">
+                    <CaptionQuickEdit
+                      job={job}
+                      segments={previewCaptionSegments}
+                      romanSegments={captionRomanSegments}
+                      script={captionScript}
+                      captionTrack={captionTrack}
+                      onCaptionTrackChange={setCaptionTrack}
+                      englishSegments={englishCaptionSegments}
+                      translatingEnglish={translatingEnglish}
+                      onTranslateEnglish={onTranslateEnglish}
+                      draft={captionDraft}
+                      onDraftChange={updateCaptionDraft}
+                      preparing={preparingVideo}
+                      onDownload={() => void downloadLatest({ clipIndex: activePreviewClip.index })}
+                      onEditLines={() => onEditCaptions?.()}
+                      onOpenFull={() => {
+                        setEditingCaptions(true)
+                        window.requestAnimationFrame(() => {
+                          document
+                            .getElementById('caption-export-studio')
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        })
+                      }}
+                    />
+                  </div>
+                </details>
               ) : undefined
             }
           />
@@ -418,26 +433,22 @@ export function ResultsStep({
         </div>
       ) : null}
 
-      <div
-        className={
-          captionMode
-            ? 'mt-7 grid max-w-3xl grid-cols-1 gap-4'
-            : 'mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-        }
-      >
-        {clips.map((clip, index) => (
-          <ClipCard
-            key={clip.id}
-            clip={clip}
-            index={index}
-            aspect={captionMode ? `${clip.width}:${clip.height}` : job.settings.aspect_ratio}
-            captionMode={captionMode}
-            preparing={preparingVideo && preparingClipIndex === clip.index}
-            onPreview={() => previewClip(clip)}
-            onDownload={() => void downloadLatest({ clipIndex: clip.index })}
-          />
-        ))}
-      </div>
+      {!captionMode ? (
+        <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {clips.map((clip, index) => (
+            <ClipCard
+              key={clip.id}
+              clip={clip}
+              index={index}
+              aspect={job.settings.aspect_ratio}
+              captionMode={false}
+              preparing={preparingVideo && preparingClipIndex === clip.index}
+              onPreview={() => previewClip(clip)}
+              onDownload={() => void downloadLatest({ clipIndex: clip.index })}
+            />
+          ))}
+        </div>
+      ) : null}
 
       {job.warnings.length > 0 ? (
         <motion.details

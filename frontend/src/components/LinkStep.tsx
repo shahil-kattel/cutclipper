@@ -191,17 +191,16 @@ export function LinkStep({
           </span>
         </div>
 
-        <h1 className="text-balance font-display text-[3.1rem] font-semibold leading-[0.96] tracking-[-0.055em] text-ink sm:text-[4.4rem] lg:text-[5.15rem]">
+        <h1 className="text-balance font-display text-[2.7rem] font-semibold leading-[0.96] tracking-[-0.055em] text-ink sm:text-[3.6rem] lg:text-[4.2rem]">
           Long video.
           <br />
           <span className="marker-highlight">Short clips</span> that
           <br />
           <span className="text-gradient italic">stop the scroll.</span>
         </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-pretty text-[13.5px] font-medium leading-7 text-ink-soft sm:text-[14.5px]">
-          Paste a public video link, upload a file, or caption a full video in English, Nepali, or
-          any language Whisper supports. CutClipper finds the moments worth watching, reframes them
-          to 9:16, and burns in editable kinetic captions — without a single watermark.
+        <p className="mx-auto mt-5 max-w-xl text-pretty text-[13px] font-medium leading-6 text-ink-soft sm:text-[14px]">
+          Paste a link, upload a file, or caption a full video. CutClipper finds the best moments
+          and adds editable captions in Nepali, English, or both.
         </p>
       </motion.div>
 
@@ -209,7 +208,7 @@ export function LinkStep({
         initial={{ opacity: 0, y: 22 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-        className="relative mx-auto mt-12 max-w-3xl sm:mt-14"
+        className="relative mx-auto mt-8 max-w-3xl sm:mt-10"
       >
         <AnimatePresence mode="wait" initial={false}>
           {preview ? (

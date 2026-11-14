@@ -586,8 +586,9 @@ writes it phonetically in Roman letters. Add the spelling to
   burned captions agree.
 - `backend/tests/test_romanize.py` — phrase-level and rendering tests.
 - `backend/tests/test_nepali_codeswitch.py` — the real-transcript regression
-  corpus. It replays every line of the 57-second Nepali/English tech video
-  (`ChatGPT`, `OpenAI`, `iOS`, `Android`, `UI/UX`) through the normal
+  corpus. It replays lines from the real 57-second, 70-second, 91-second, and
+  Honor tech-review transcripts (`ChatGPT`, `OpenAI`, `iOS`, `Android`,
+  `UI/UX`, `Honor X7b`, `mAh`, `packaging`, `Daraz`) through the normal
   word-normalization and caption-grouping path, then checks both the
   Devanagari/Latin caption and its Roman form. Add a case here whenever a real
   mixed-language transcript exposes a new error.

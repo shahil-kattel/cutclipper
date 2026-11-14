@@ -1,8 +1,9 @@
 """Regression corpus for Nepali speech that mixes in English words.
 
-The cases below are the real ASR output from a 57-second Nepali tech video
-(the same audio under ``backend/data/uploads``). They are kept as a fixture so
-the code-switch fixes cannot silently regress:
+The cases below are the real ASR output from the Nepali videos exercised during
+development (the 57-second ChatGPT upload plus 70-second, 91-second, and Honor
+tech-review clips). They are kept as a fixture so the code-switch fixes cannot
+silently regress:
 
 * English words written in Devanagari are restored to Latin script.
 * Split product names (``चार GPT``, ``chat GPT``, ``Open AI``) become one word
@@ -305,6 +306,50 @@ def test_roman_compound_verbs_split_into_readable_words() -> None:
     ],
 )
 def test_second_real_transcript_errors_are_normalised(
+    tokens: tuple[str, ...],
+    caption: str,
+) -> None:
+    text, _ = _build_caption_line(tokens)
+    assert text == caption
+
+
+@pytest.mark.parametrize(
+    ("tokens", "caption"),
+    [
+        (("टेक", "पानामा", "आइपुगेको", "छ"), "TechPanaमा आइपुगेको छ"),
+        (("अनर", "एक्स", "सेबेन", "बी"), "Honor X7b"),
+        (("फस्ट", "लेयर", "अफ", "प्याकेजिङमा"), "first layer of packagingमा"),
+        (("६०००", "एमेएचको", "battery", "plus"), "6000 mAhको battery plus"),
+        (("3", "डेज", "battery", "लाइफ"), "3 days battery life"),
+        (
+            ("१०८", "मेगापिक्सलको", "अल्ट्राक्लियर", "camera"),
+            "108 megapixelको ultra clear camera",
+        ),
+        (("सेन", "cameraको", "बारेमा"), "main cameraको बारेमा"),
+        (("छ", "plus", "यहाँ", "६१६२९५६"), "छ plus यहाँ 6162956"),
+        (
+            ("यसको", "थर", "layer", "of", "प्याकेसिङमा", "छ"),
+            "यसको third layer of packagingमा छ",
+        ),
+        (
+            ("डुयल", "speaker", "200%", "भोलुम", "एन", "स्टेरियो", "साउन"),
+            "dual speaker 200% volume and stereo sound",
+        ),
+        (("phoneको", "बक्सै", "पाउन"), "phoneको box पाउन"),
+        (
+            ("68", "inch", "Honor", "फूल", "व्यु", "डिस्प्लेसर"),
+            "68 inch Honor full view display",
+        ),
+        (
+            ("companyले", "दिएको", "अर्लिबर्ड", "अफरा"),
+            "companyले दिएको early bird offer",
+        ),
+        (("onlineमा", "दराज", "र", "स्टोरसहित"), "onlineमा Daraz र storeसहित"),
+        (("२३९९", "रूपैयाँ"), "2399 रूपैयाँ"),
+        (("१०००", "छुटसहित"), "1000 छुटसहित"),
+    ],
+)
+def test_third_real_transcript_english_words_are_latin(
     tokens: tuple[str, ...],
     caption: str,
 ) -> None:
