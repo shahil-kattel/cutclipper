@@ -50,6 +50,85 @@ NEPALI_WORD_CORRECTIONS = {
     "लाइचे": "लाई",
     # "गरिहेरे" is not a Nepali word; the speaker says "मैले … download गरें".
     "गरिहेरे": "गरें",
+    # Common similar-sounding spelling slips from the fine-tune. These are
+    # non-words (or non-standard forms), not valid alternative spellings.
+    "पनी": "पनि",
+    "देखी": "देखि",
+    "पछी": "पछि",
+    "अघी": "अघि",
+    "लाइ": "लाई",
+    "हुदै": "हुँदै",
+    "गर्नू": "गर्नु",
+    "सक्नू": "सक्नु",
+    "भन्नू": "भन्नु",
+    "दिनू": "दिनु",
+    "लिनू": "लिनु",
+    "जानू": "जानु",
+    "आउनू": "आउनु",
+    "हुनू": "हुनु",
+    "छन": "छन्",
+    "भन्छन": "भन्छन्",
+    "गर्छन": "गर्छन्",
+    "हुन्छन": "हुन्छन्",
+    "दिन्छन": "दिन्छन्",
+    "पर्छन": "पर्छन्",
+    "आउँछन": "आउँछन्",
+    "गर्नेछन": "गर्नेछन्",
+    "सक्छन": "सक्छन्",
+    "छैन्": "छैन",
+    "सीमिततता": "सीमितता",
+    "चेतावनै": "चेतावनी",
+    "हुनेही": "हुने",
+    "हत्याधुनिक": "अत्याधुनिक",
+    "आगामित": "आगामी",
+    "रहिमासिक": "त्रैमासिक",
+    # ब/व and श/स/ष confusions. These spellings are non-standard or
+    # non-words in the contexts the ASR produces them.
+    "बिश्व": "विश्व",
+    "बिश्वास": "विश्वास",
+    "बिज्ञान": "विज्ञान",
+    "बिद्यालय": "विद्यालय",
+    "ब्यक्ति": "व्यक्ति",
+    "बातावरण": "वातावरण",
+    "बिकल्प": "विकल्प",
+    "बिवाह": "विवाह",
+    "बिषय": "विषय",
+    "बिशेष": "विशेष",
+    "ब्यवस्था": "व्यवस्था",
+    "ब्यापार": "व्यापार",
+    "बिरोध": "विरोध",
+    "बिचार": "विचार",
+    "बिभाग": "विभाग",
+    "बिस्तार": "विस्तार",
+    "बिधि": "विधि",
+    "बिकास": "विकास",
+    "सिक्षा": "शिक्षा",
+    "शुरु": "सुरु",
+    "शहर": "सहर",
+    "सान्ति": "शान्ति",
+    "भिडीयो": "भिडियो",
+    "गुरू": "गुरु",
+    "सैटिङ": "सेटिङ",
+    "किटाब": "किताब",
+    "गल्टी": "गल्ती",
+    "आफनो": "आफ्नो",
+    "परीवार": "परिवार",
+    "मत्र": "मात्र",
+    "हैन": "होइन",
+    "स्थियो": "थियो",
+    "हामले": "हामीले",
+    "भन्नुहुन्दा": "भन्नुहुँदा",
+    "पहिलेदेखिन": "पहिलेदेखि",
+    "बिस्तारै": "विस्तारै",
+    "असोशिएसन": "असोसिएसन",
+    "असोस्ट्रेसन": "असोसिएसन",
+    "जुनसिके": "जुनसुकै",
+    "त्यहिवेर": "त्यही भएर",
+    "तपाउँ": "तपाईं",
+    "हुनुहुन": "हुनुहुन्छ",
+    "घाह्रो": "गाह्रो",
+    "पफ्ट्याह्रो": "अफ्ठ्यारो",
+    "त्यहरू": "त्यहाँ",
 }
 
 # Two-word English terms are split by the ASR in several ways. A phrase
@@ -74,6 +153,14 @@ _PHRASE_REPLACEMENTS = (
     # same audio returns "ChatGPT 3.5 model", and ".5" alone is never a valid
     # version label here.
     (re.compile(r"(?<!\S)ChatGPT\s*\.\s*५(?![\d०-९])"), "ChatGPT 3.5"),
+    # The fine-tune sometimes splits a single Nepali word into two tokens.
+    (re.compile(r"(?<!\S)गम्भी\s+र(?!\S)"), "गम्भीर"),
+    (re.compile(r"(?<!\S)जो\s+खेम(?!\S)"), "जोखिम"),
+    (re.compile(r"(?<!\S)चेता\s+भनिदिएसँगै(?!\S)"), "चेतावनी दिएसँगै"),
+    (re.compile(r"(?<!\S)माग\s+पुरा(?!\S)"), "माग पूरा"),
+    (re.compile(r"(?<!\S)वि\s+एर\s+गेटिङ(?!\S)", re.IGNORECASE), "we are getting"),
+    (re.compile(r"(?<!\S)हेर्ने\s+पर\s+सुविधा(?!\S)"), "हेर्ने पनि सुविधा"),
+    (re.compile(r"(?<!\S)कुरा\s+बाको(?!\S)"), "कुरा बाँकी"),
 )
 
 _CHATGPT_SPLIT_RE = re.compile(
@@ -106,6 +193,7 @@ NEPALI_PHRASE_CORRECTIONS = (
 # Small context-sensitive fixes for words that are valid Nepali or English in
 # another context. ``(previous words..., target, replacement)``.
 CONTEXT_WORD_CORRECTIONS: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (("कुरा",), "बाको", "बाँकी"),
     (("अहिलेको", "लागि"), "भनेछ", "भने"),
     (("गर्न",), "मेल्यो", "मिल्यो"),
     (("finally",), "heard", "here"),
@@ -115,6 +203,64 @@ CONTEXT_WORD_CORRECTIONS: tuple[tuple[tuple[str, ...], str, str], ...] = (
 )
 
 _WORD_EDGE_PUNCTUATION = "।॥.,;:!?…\"'“”‘’()[]{}<>«»‹›/\\-–—"
+_CORRECTION_SUFFIXES = tuple(
+    sorted(
+        {
+            "हरूलाई",
+            "हरुलाई",
+            "हरूले",
+            "हरुले",
+            "हरूको",
+            "हरुको",
+            "हरूमा",
+            "हरुमा",
+            "हरूबाट",
+            "हरुबाट",
+            "हरूसँग",
+            "हरुसँग",
+            "हरूका",
+            "हरुका",
+            "हरूकी",
+            "हरुकी",
+            "हरू",
+            "हरु",
+            "लाई",
+            "बाट",
+            "सँग",
+            "संग",
+            "सम्म",
+            "देखि",
+            "देखी",
+            "भन्दा",
+            "जस्तै",
+            "जस्तो",
+            "तिर",
+            "बिना",
+            "विना",
+            "बाहेक",
+            "द्वारा",
+            "को",
+            "का",
+            "की",
+            "मा",
+            "ले",
+            "मै",
+            "कै",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+_DEVANAGARI_DIGIT_CHARS = frozenset("०१२३४५६७८९")
+_DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
+
+
+def _has_ascii_letter(text: str) -> bool:
+    return any(char.isascii() and char.isalpha() for char in text)
+
+
+def _as_ascii_digits(text: str) -> str:
+    return text.translate(_DEVANAGARI_DIGITS)
 
 
 def _strip_trailing_punctuation(text: str) -> tuple[str, str]:
@@ -158,8 +304,12 @@ def merge_english_phrase(first: str, second: str) -> str | None:
     return None
 
 
-def correct_word_in_context(previous_words: Sequence[str], word: str) -> str | None:
-    """Correct a word only when its preceding words match a known ASR error."""
+def correct_word_in_context(
+    previous_words: Sequence[str],
+    word: str,
+    next_word: str | None = None,
+) -> str | None:
+    """Correct a word only when its surrounding words match a known pattern."""
 
     core, trailing = _strip_trailing_punctuation(word)
     if not core:
@@ -172,6 +322,36 @@ def correct_word_in_context(previous_words: Sequence[str], word: str) -> str | N
         )
         if previous == context:
             return replacement + trailing
+
+    # A plural subject takes the plural past copula: "playersहरू थियो" is a
+    # common ASR slip for "playersहरू थिए".
+    if core == "थियो" and previous_words:
+        previous = _strip_trailing_punctuation(previous_words[-1])[0]
+        if previous.endswith(("हरू", "हरु")):
+            return "थिए" + trailing
+
+    # "लास" normally means a corpse; only the sports phrase "last season"
+    # turns it into the English word "last".
+    if (
+        core == "लास"
+        and next_word
+        and _strip_trailing_punctuation(next_word)[0].startswith("season")
+    ):
+        return "last" + trailing
+
+    # English product/version numbers are spoken inside Nepali, but the
+    # fine-tune often writes them in Devanagari digits (GPT ४, iPhone १५).
+    # Convert only when the surrounding word is Latin, or the token itself
+    # mixes Latin letters with Devanagari digits.
+    if any(char in _DEVANAGARI_DIGIT_CHARS for char in core):
+        if _has_ascii_letter(core):
+            return _as_ascii_digits(core) + trailing
+        if previous_words:
+            previous = _strip_trailing_punctuation(previous_words[-1])[0]
+            if _has_ascii_letter(previous):
+                return _as_ascii_digits(core) + trailing
+        if next_word and _has_ascii_letter(next_word):
+            return _as_ascii_digits(core) + trailing
     return None
 
 
@@ -180,7 +360,12 @@ def correct_words_in_context(words: Sequence[str]) -> list[str]:
 
     corrected = list(words)
     for index, word in enumerate(corrected):
-        replacement = correct_word_in_context(corrected[max(0, index - 2) : index], word)
+        next_word = corrected[index + 1] if index + 1 < len(corrected) else None
+        replacement = correct_word_in_context(
+            corrected[max(0, index - 2) : index],
+            word,
+            next_word,
+        )
         if replacement is not None:
             corrected[index] = replacement
     return corrected
@@ -291,6 +476,22 @@ def english_term_for(word: str) -> str | None:
     return None
 
 
+def _corrected_token(token: str) -> str | None:
+    """Return a correction for the token or a corrected case-suffixed stem."""
+
+    direct = NEPALI_WORD_CORRECTIONS.get(token)
+    if direct is not None:
+        return direct
+    for suffix in _CORRECTION_SUFFIXES:
+        if len(token) <= len(suffix) + 1 or not token.endswith(suffix):
+            continue
+        stem = token[: -len(suffix)]
+        correction = NEPALI_WORD_CORRECTIONS.get(stem)
+        if correction is not None:
+            return correction + suffix
+    return None
+
+
 def correct_nepali_word(text: str) -> str:
     """Fix a known ASR token spelling, then restore a known English loanword."""
 
@@ -299,10 +500,12 @@ def correct_nepali_word(text: str) -> str:
     stripped = text.strip(" \t\r\n।॥,;:!?\"'()[]{}")
     if not stripped:
         return text
-    corrected = NEPALI_WORD_CORRECTIONS.get(stripped, stripped)
+    corrected = _corrected_token(stripped) or stripped
     english = english_term_for(corrected)
     if english:
         return text.replace(stripped, english, 1)
+    if any(char in _DEVANAGARI_DIGIT_CHARS for char in corrected) and _has_ascii_letter(corrected):
+        return text.replace(stripped, _as_ascii_digits(corrected), 1)
     if corrected != stripped:
         return text.replace(stripped, corrected, 1)
     return text

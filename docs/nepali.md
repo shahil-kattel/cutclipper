@@ -486,25 +486,25 @@ Use these as ASR/translation smoke tests.
 | Nepali | Roman Nepali | English |
 |---|---|---|
 | नमस्ते, मेरो नाम शाहिल हो। | Namaste, mero naam Shahil ho. | Hello, my name is Shahil. |
-| तपाईंलाई कस्तो छ? | Tapainlai kasto chha? | How are you? (formal) |
+| तपाईंलाई कस्तो छ? | Tapailai kasto chha? | How are you? (formal) |
 | म ठीक छु, धन्यवाद। | Ma thik chhu, dhanyabaad. | I'm fine, thank you. |
-| आज हामी काठमाडौंमा भेट्यौं। | Aaja haami Kathmanduma bhetyaun. | We met in Kathmandu today. |
-| उहाँले भन्नुभयो, “यो राम्रो छ।” | Uhaanle bhannubhayo, “Yo raamro chha.” | He/she said, "This is good." |
+| आज हामी काठमाडौंमा भेट्यौं। | Aaja hami Kathmanduma bhetyaun. | We met in Kathmandu today. |
+| उहाँले भन्नुभयो, “यो राम्रो छ।” | Uhaanle bhannu bhayo, “Yo ramro chha.” | He/she said, "This is good." |
 | मैले काम गरें। | Maile kaam garen. | I did the work. |
 | उनीहरू घर गए। | Uniharu ghar gaye. | They went home. |
 | हिजो पानी पर्यो। | Hijo paani paryo. | It rained yesterday. |
 | भोलि बिहान बैठक हुनेछ। | Bholi bihaan baithak hunechha. | There will be a meeting tomorrow morning. |
-| मलाई नेपाली सिक्न मन लाग्छ। | Malai Nepali sikna man laagchha. | I want to learn Nepali. |
+| मलाई नेपाली सिक्न मन लाग्छ। | Malai Nepali sikna man lagchha. | I want to learn Nepali. |
 | उसले सोध्यो, “तिमी कहाँ जान्छौ?” | Usle sodhyo, “Timi kahaan jaanchhau?” | He asked, "Where are you going?" |
-| यो भिडियो धेरै राम्रो छ; सबैले हेर्नुपर्छ। | Yo video dherai raamro chha; sabaile hernuparchha. | This video is really good; everyone should watch it. |
-| कृपया माइक्रोफोन अलि नजिक राख्नुहोस्। | Kripaya microphone ali najik rakhnuhos. | Please keep the microphone a little closer. |
-| हामीले आजै काम सक्नुपर्छ। | Haamile aajai kaam saknuparchha. | We have to finish the work today itself. |
+| यो भिडियो धेरै राम्रो छ; सबैले हेर्नुपर्छ। | Yo video dherai ramro chha; sabaile hernu parchha. | This video is really good; everyone should watch it. |
+| कृपया माइक्रोफोन अलि नजिक राख्नुहोस्। | Kripaya microphone ali najik rakhnu hos. | Please keep the microphone a little closer. |
+| हामीले आजै काम सक्नुपर्छ। | Hamile aajai kaam saknu parchha. | We have to finish the work today itself. |
 | उहाँहरू त्यहाँ रहे। | Uhaanharu tyahaan rahe. | They stayed there. |
-| यो ल्यापटपको ब्याट्री राम्रो छ, तर विन्डोज अपडेट ढिलो हुन्छ। | Yo laptopko battery raamro chha, tar Windows update dhilo hunchha. | This laptop's battery is good, but Windows updates are slow. |
+| यो ल्यापटपको ब्याट्री राम्रो छ, तर विन्डोज अपडेट ढिलो हुन्छ। | Yo laptop ko battery ramro chha, tar Windows update dhilo hunchha. | This laptop's battery is good, but Windows updates are slow. |
 | मिटिङ साढे तीन बजे सुरु हुनेछ। | Meeting saadhe teen baje suru hunechha. | The meeting will start at 3:30. |
-| उहाँले दशैंमा घर जानुभयो। | Uhaanle Dashainma ghar jaanubhayo. | He/she went home for Dashain. |
+| उहाँले दशैंमा घर जानुभयो। | Uhaanle Dashainma ghar janu bhayo. | He/she went home for Dashain. |
 | यो काम सजिलो छैन, तर गर्न सकिन्छ। | Yo kaam sajilo chhaina, tar garna sakinchha. | This work isn't easy, but it can be done. |
-| मलाई थाहा छैन, उहाँ आउनुहुन्छ कि हुँदैन। | Malai thaahaa chhaina, uhaan aaunuhunchha ki hudaina. | I don't know whether he/she is coming. |
+| मलाई थाहा छैन, उहाँ आउनुहुन्छ कि हुँदैन। | Malai thaahaa chhaina, uhaan aunu hunchha ki hudaina. | I don't know whether he/she is coming. |
 
 ## 8. Roman Nepali captions
 
@@ -558,10 +558,13 @@ The romanizer never transliterates Latin text. It also runs the existing
 Devanagari → English glossary first, so known English loans keep their English
 spelling:
 
-- `यो भिडियो धेरै राम्रो छ` → `Yo video dherai raamro chha`
-- `विन्डोजमा` → `Windowsma`
-- `YouTubeमा` → `YouTubema` (Latin stem + Roman Nepali suffix)
-- `कम्पनीहरूले` → `companyharule`
+- `यो भिडियो धेरै राम्रो छ` → `Yo video dherai ramro chha`
+- `विन्डोजमा` → `Windows ma`
+- `YouTubeमा` → `YouTube ma` (Latin stem + separated Roman Nepali suffix)
+- `कम्पनीहरूले` → `company harule`
+- `सीईओ` → `CEO`, `यूएसए` → `USA`, `डलर` → `dollar`, `प्रतिशत` → `percent`
+- `GPT ४` → `GPT 4`, `२२ प्रतिशत` → `22 percent` (Devanagari digits
+  next to English labels become ASCII)
 - `This is English.` → unchanged
 
 If a mixed token has an English word that is not in the glossary, the fallback

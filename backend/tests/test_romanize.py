@@ -27,42 +27,42 @@ from app.services.romanize import (
     ("nepali", "roman"),
     [
         ("नमस्ते, मेरो नाम शाहिल हो।", "Namaste, mero naam Shahil ho."),
-        ("तपाईंलाई कस्तो छ?", "Tapainlai kasto chha?"),
+        ("तपाईंलाई कस्तो छ?", "Tapailai kasto chha?"),
         ("म ठीक छु, धन्यवाद।", "Ma thik chhu, dhanyabaad."),
-        ("आज हामी काठमाडौंमा भेट्यौं।", "Aaja haami Kathmanduma bhetyaun."),
+        ("आज हामी काठमाडौंमा भेट्यौं।", "Aaja hami Kathmanduma bhetyaun."),
         (
             "उहाँले भन्नुभयो, “यो राम्रो छ।”",
-            "Uhaanle bhannubhayo, “Yo raamro chha.”",
+            "Uhaanle bhannu bhayo, “Yo ramro chha.”",
         ),
         ("मैले काम गरें।", "Maile kaam garen."),
         ("उनीहरू घर गए।", "Uniharu ghar gaye."),
         ("हिजो पानी पर्यो।", "Hijo paani paryo."),
         ("भोलि बिहान बैठक हुनेछ।", "Bholi bihaan baithak hunechha."),
-        ("मलाई नेपाली सिक्न मन लाग्छ।", "Malai Nepali sikna man laagchha."),
+        ("मलाई नेपाली सिक्न मन लाग्छ।", "Malai Nepali sikna man lagchha."),
         (
             "उसले सोध्यो, “तिमी कहाँ जान्छौ?”",
             "Usle sodhyo, “Timi kahaan jaanchhau?”",
         ),
         (
             "यो भिडियो धेरै राम्रो छ; सबैले हेर्नुपर्छ।",
-            "Yo video dherai raamro chha; sabaile hernuparchha.",
+            "Yo video dherai ramro chha; sabaile hernu parchha.",
         ),
-        ("कृपया माइक्रोफोन अलि नजिक राख्नुहोस्।", "Kripaya microphone ali najik rakhnuhos."),
-        ("हामीले आजै काम सक्नुपर्छ।", "Haamile aajai kaam saknuparchha."),
+        ("कृपया माइक्रोफोन अलि नजिक राख्नुहोस्।", "Kripaya microphone ali najik rakhnu hos."),
+        ("हामीले आजै काम सक्नुपर्छ।", "Hamile aajai kaam saknu parchha."),
         ("उहाँहरू त्यहाँ रहे।", "Uhaanharu tyahaan rahe."),
         (
             "यो ल्यापटपको ब्याट्री राम्रो छ, तर विन्डोज अपडेट ढिलो हुन्छ।",
-            "Yo laptopko battery raamro chha, tar Windows update dhilo hunchha.",
+            "Yo laptop ko battery ramro chha, tar Windows update dhilo hunchha.",
         ),
         ("मिटिङ साढे तीन बजे सुरु हुनेछ।", "Meeting saadhe teen baje suru hunechha."),
-        ("उहाँले दशैंमा घर जानुभयो।", "Uhaanle Dashainma ghar jaanubhayo."),
+        ("उहाँले दशैंमा घर जानुभयो।", "Uhaanle Dashainma ghar janu bhayo."),
         (
             "यो काम सजिलो छैन, तर गर्न सकिन्छ।",
             "Yo kaam sajilo chhaina, tar garna sakinchha.",
         ),
         (
             "मलाई थाहा छैन, उहाँ आउनुहुन्छ कि हुँदैन।",
-            "Malai thaahaa chhaina, uhaan aaunuhunchha ki hudaina.",
+            "Malai thaahaa chhaina, uhaan aunu hunchha ki hudaina.",
         ),
     ],
 )
@@ -73,23 +73,23 @@ def test_documented_nepali_phrases_become_accurate_roman_nepali(nepali: str, rom
 def test_english_and_latin_brand_names_are_never_transliterated() -> None:
     assert romanize_nepali_text("This is English.") == "This is English."
     assert romanize_nepali_text("iPhone 15 Pro") == "iPhone 15 Pro"
-    assert romanize_nepali_text("यो video धेरै राम्रो छ") == "Yo video dherai raamro chha"
+    assert romanize_nepali_text("यो video धेरै राम्रो छ") == "Yo video dherai ramro chha"
     assert romanize_nepali_text("मेरो नाम Shahil हो") == "Mero naam Shahil ho"
 
 
 def test_mixed_english_tokens_keep_the_latin_stem_and_romanize_the_suffix() -> None:
-    assert romanize_token("YouTubeमा") == "YouTubema"
-    assert romanize_token("videoको") == "videoko"
-    assert romanize_token("भिडियोको") == "videoko"
-    assert romanize_token("युट्युबमा") == "YouTubema"
-    assert romanize_token("विन्डोजमा") == "Windowsma"
-    assert romanize_token("कम्पनीहरूले") == "companyharule"
-    assert romanize_token("कम्पनीहरूसंग") == "companyharusanga"
+    assert romanize_token("YouTubeमा") == "YouTube ma"
+    assert romanize_token("videoको") == "video ko"
+    assert romanize_token("भिडियोको") == "video ko"
+    assert romanize_token("युट्युबमा") == "YouTube ma"
+    assert romanize_token("विन्डोजमा") == "Windows ma"
+    assert romanize_token("कम्पनीहरूले") == "company harule"
+    assert romanize_token("कम्पनीहरूसंग") == "company harusanga"
     assert romanize_token("हार्डिक्स") == "hard disk"
 
 
 def test_va_is_b_standalone_and_w_inside_a_cluster() -> None:
-    assert romanize_token("विकास") == "bikaas"
+    assert romanize_token("विकास") == "bikas"
     assert romanize_token("व्यक्ति") == "byakti"
     assert romanize_token("स्वागत") == "swaagat"
     assert romanize_token("द्वारा") == "dwara"
@@ -97,10 +97,23 @@ def test_va_is_b_standalone_and_w_inside_a_cluster() -> None:
     assert romanize_token("केवल") == "kebal"
 
 
+def test_real_interview_words_use_conventional_roman_forms() -> None:
+    assert romanize_token("वहाँले") == "wahaanle"
+    assert romanize_token("जसरी") == "jasari"
+    assert romanize_token("एउटा") == "euta"
+    assert romanize_token("दाइले") == "daile"
+    assert romanize_token("पाउन") == "paun"
+    assert romanize_token("घाँसमा") == "ghansama"
+    assert romanize_token("ठाउँठाउँमा") == "thauthaumma"
+    assert romanize_token("भन्नुहुँदा") == "bhannuhunda"
+    assert romanize_token("गाह्रो") == "gahro"
+    assert romanize_token("अफ्ठ्यारो") == "afthyaaro"
+
+
 def test_common_school_and_health_loans_stay_english() -> None:
     assert romanize_token("डाक्टर") == "doctor"
     assert romanize_token("स्कुल") == "school"
-    assert romanize_token("पुलिसले") == "policele"
+    assert romanize_token("पुलिसले") == "police le"
     assert romanize_token("नर्स") == "nurse"
 
 
@@ -110,7 +123,7 @@ def test_danda_digits_and_punctuation_are_preserved_as_latin_marks() -> None:
     assert romanize_nepali_text("मेरो नम्बर ९८४१२३४५६७ हो।") == ("Mero number 9841234567 ho.")
     assert romanize_nepali_text("नमस्ते।धन्यवाद") == "Namaste.Dhanyabaad"
     assert romanize_nepali_text("नमस्ते । धन्यवाद ।") == "Namaste. Dhanyabaad."
-    assert romanize_nepali_text("यो राम्रो छ ।") == "Yo raamro chha."
+    assert romanize_nepali_text("यो राम्रो छ ।") == "Yo ramro chha."
     assert romanize_nepali_text("नमस्ते , धन्यवाद") == "Namaste, dhanyabaad"
 
 

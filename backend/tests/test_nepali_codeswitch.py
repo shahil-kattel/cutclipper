@@ -29,93 +29,82 @@ REAL_TRANSCRIPT_CASES: tuple[tuple[tuple[str, ...], str, str], ...] = (
     (
         ("चार", "GPTको", "mobile", "app", "is", "finally", "heard।"),
         "ChatGPTको mobile app is finally here।",
-        "ChatGPTko mobile app is finally here.",
+        "ChatGPT ko mobile app is finally here.",
     ),
     (
         ("तपाईँले", "चार", "GPT", "लाइचे", "Open", "AIको", "websiteबाट", "मात्र", "नभई", "सोझै"),
         "तपाईँले ChatGPT लाई OpenAIको websiteबाट मात्र नभई सोझै",
-        "Tapainle ChatGPT lai OpenAIko websitebaat maatra nabhaee sojhai",
+        "Tapaile ChatGPT lai OpenAI ko website bata matra nabhai sojhai",
     ),
     (
         ("mobile", "appबाट", "पनि", "access", "गर्न", "सक्नुहुन्छ।"),
         "mobile appबाट पनि access गर्न सक्नुहुन्छ।",
-        "Mobile appbaat pani access garna saknuhunchha.",
+        "Mobile app bata pani access garna saknu hunchha.",
     ),
     (
         ("अहिलेको", "लागि", "भनेछ", "it's", "only", "available", "for", "iPhones", "त्यो", "पनि"),
         "अहिलेको लागि भने it's only available for iPhones त्यो पनि",
-        "Ahileko laagi bhane it's only available for iPhones tyo pani",
+        "Ahileko lagi bhane it's only available for iPhones tyo pani",
     ),
     (
         ("USAमा", "मात्रै", "तर", "तपाईँले", "आफ्नो", "Apple", "IDको", "region", "change", "गरेर"),
         "USAमा मात्रै तर तपाईँले आफ्नो Apple IDको region change गरेर",
-        "USAma maatrai tar tapainle aafno Apple IDko region change garera",
+        "USA ma matrai tar tapaile afno Apple ID ko region change garera",
     ),
     (
         ("यसलाई", "सजिलै", "download", "चै", "गर्न", "मेल्यो।"),
         "यसलाई सजिलै download चाहिँ गर्न मिल्यो।",
-        "Yaslai sajilai download chahin garna milyo.",
+        "Yaslai sajilai download chahi garna milyo.",
     ),
     (
         ("अनि", "Open", "AIले", "भने", "अनुसार", "ChatGPTको", "app", "चे", "iOSबाहेक", "Android"),
         "अनि OpenAIले भने अनुसार ChatGPTको app चाहिँ iOSबाहेक Android",
-        "Ani OpenAIle bhane anusaar ChatGPTko app chahin iOSbaahek Android",
+        "Ani OpenAI le bhane anusar ChatGPT ko app chahi iOS bahek Android",
     ),
     (
         ("phonesमा", "पनि", "साँढै", "नै", "आउँदै", "छ।"),
         "phonesमा पनि चाँडै नै आउँदै छ।",
-        "Phonesma pani chaandai nai aaundai chha.",
+        "Phones ma pani chandai nai audai chha.",
     ),
     (
         ("मैले", "त्यो", "chat", "GPTको", "app", "download", "गरिहेरे", "र", "यसको", "UI"),
         "मैले त्यो ChatGPTको app download गरें र यसको UI",
-        "Maile tyo ChatGPTko app download garen ra yasko UI",
+        "Maile tyo ChatGPT ko app download garen ra yasko UI",
     ),
     (
         ("UXको", "बारेमा", "कुरा", "गर्नुपर्दा", "quite", "simple", "अनि", "easy", "to", "use।"),
         "UXको बारेमा कुरा गर्नुपर्दा quite simple अनि easy to use।",
-        "UXko baaremaa kuraa garnuparda quite simple ani easy to use.",
+        "UX ko barema kura garnu parda quite simple ani easy to use.",
     ),
     (
         ("defaultमा", "छै", "it", "runs", "अन", "chat", "GPT", ".५", "model", "तर"),
         "defaultमा छ it runs on ChatGPT 3.5 model तर",
-        "Defaultma chha it runs on ChatGPT 3.5 model tar",
+        "Default ma chha it runs on ChatGPT 3.5 model tar",
     ),
     (
         ("तपाईँसँग", "चार", "GPT", "plus", "subscription", "छ", "भने", "तपाईँले", "GPT", "४"),
-        "तपाईँसँग ChatGPT plus subscription छ भने तपाईँले GPT ४",
-        "Tapainsanga ChatGPT plus subscription chha bhane tapainle GPT 4",
+        "तपाईँसँग ChatGPT plus subscription छ भने तपाईँले GPT 4",
+        "Tapai sanga ChatGPT plus subscription chha bhane tapaile GPT 4",
     ),
     (
         ("model", "पनि", "access", "गर्न", "सक्नुहुन्छ।"),
         "model पनि access गर्न सक्नुहुन्छ।",
-        "Model pani access garna saknuhunchha.",
+        "Model pani access garna saknu hunchha.",
     ),
     (
         ("जसबाट", "you", "can", "get", "आफ्नो", "responses", "अनि", "यो", "appको", "overall"),
         "जसबाट you can get आफ्नो responses अनि यो appको overall",
-        "Jasabaat you can get aafno responses ani yo appko overall",
+        "Jasbata you can get afno responses ani yo app ko overall",
     ),
     (
-        (
-            "benefit",
-            "भनेको",
-            "छ",
-            "यहाँ",
-            "तपाईँले",
-            "आफ्नो",
-            "questions",
-            "type",
-            "गर्नुभन्दा",
-            "सिद्धै",
-        ),
+        ("benefit", "भनेको", "छ", "यहाँ", "तपाईँले", "आफ्नो", "questions", "type", "गर्नुभन्दा", "सिद्धै"),
         "benefit भनेको छ यहाँ तपाईँले आफ्नो questions type गर्नुभन्दा सिधै",
-        "Benefit bhaneko chha yahaan tapainle aafno questions type garnubhanda sidhai",
+        "Benefit bhaneko chha yaha tapaile afno questions type garnu bhanda sidhai",
     ),
     (
         ("बोलेर", "नै", "सोध्न", "सक्नुहुन्छ", "which", "is", "awesome"),
         "बोलेर नै सोध्न सक्नुहुन्छ which is awesome",
-        "Bolera nai sodhna saknuhunchha which is awesome",
+        "Bolera nai sodhna saknu hunchha which is awesome",
     ),
 )
 
@@ -242,10 +231,82 @@ def test_roman_gerunds_and_short_imperatives_keep_the_right_final_vowel() -> Non
 def test_roman_pronouns_and_particles_use_conventional_spellings() -> None:
     assert romanize_token("यसलाई") == "yaslai"
     assert romanize_token("त्यसलाई") == "tyaslai"
-    assert romanize_token("चाहिँ") == "chahin"
+    assert romanize_token("चाहिँ") == "chahi"
 
 
 def test_decimal_point_is_not_treated_as_a_sentence_end() -> None:
     assert romanize_nepali_text("GPT .५ model") == "GPT .5 model"
     assert romanize_nepali_text("मेरो v१.५ model") == "Mero v1.5 model"
-    assert romanize_nepali_text("example.com बाट") == "Example.com baat"
+    assert romanize_nepali_text("example.com बाट") == "Example.com bata"
+
+
+def test_english_acronyms_and_currency_are_latin() -> None:
+    assert transcriber._normalize_word("सीईओ") == "CEO"
+    assert transcriber._normalize_word("यूएसए") == "USA"
+    assert transcriber._normalize_word("डलरमा") == "dollarमा"
+    assert transcriber._normalize_word("प्रतिशत") == "percent"
+    assert transcriber._normalize_word("कल्चर") == "culture"
+    assert transcriber._normalize_word("फेज") == "phase"
+    assert romanize_token("सीईओ") == "CEO"
+    assert romanize_token("डलर") == "dollar"
+
+
+def test_english_version_numbers_use_ascii_digits() -> None:
+    assert transcriber._normalize_word("GPT४") == "GPT4"
+    assert transcriber._normalize_word("v१.५") == "v1.5"
+    text, words = _build_caption_line(("GPT", "४", "model"))
+    assert text == "GPT 4 model"
+    assert [word.text for word in words] == ["GPT", "4", "model"]
+    text, _ = _build_caption_line(("ChatGPT", ".५", "model"))
+    assert text == "ChatGPT 3.5 model"
+
+
+def test_common_nepali_similar_sounding_slips_are_normalised() -> None:
+    for source, expected in (
+        ("पनी", "पनि"),
+        ("देखी", "देखि"),
+        ("पछी", "पछि"),
+        ("हुदै", "हुँदै"),
+        ("गर्नू", "गर्नु"),
+        ("गर्छन", "गर्छन्"),
+        ("हुन्छन", "हुन्छन्"),
+        ("घाह्रो", "गाह्रो"),
+        ("पफ्ट्याह्रो", "अफ्ठ्यारो"),
+        ("त्यहरू", "त्यहाँ"),
+    ):
+        assert transcriber._normalize_word(source) == expected
+
+
+def test_roman_compound_verbs_split_into_readable_words() -> None:
+    assert romanize_token("सक्नुहुन्छ।") == "saknu hunchha."
+    assert romanize_token("गर्नुपर्छ") == "garnu parchha"
+    assert romanize_token("गर्नुपर्दा") == "garnu parda"
+    assert romanize_token("भन्नुभयो") == "bhannu bhayo"
+    assert romanize_token("हुनुहुन्छ") == "hunu hunchha"
+    assert romanize_token("दिनुहोस्") == "dinu hos"
+
+
+@pytest.mark.parametrize(
+    ("tokens", "caption"),
+    [
+        (("चेता", "भनिदिएसँगै"), "चेतावनी दिएसँगै"),
+        (("जो", "खेम"), "जोखिम"),
+        (("गम्भी", "र"), "गम्भीर"),
+        (("सीमिततताका", "कारण"), "सीमितताका कारण"),
+        (("आगामित", "रहिमासिकमा"), "आगामी त्रैमासिकमा"),
+        (("सिएयो", "टेमकोकले"), "CEO Tim Cookले"),
+        (("सियोगोकले", "बताएका"), "CEO Cookले बताएका"),
+        (("२२", "प्रतिशत"), "22 percent"),
+        (("डलरमा", "मात्र"), "dollarमा मात्र"),
+        (("playersहरू", "थियो", "पाउन"), "playersहरू थिए पाउन"),
+        (("कुरा", "बाको", "हो"), "कुरा बाँकी हो"),
+        (("लास", "सिजनबाट", "आयो"), "last seasonबाट आयो"),
+        (("लास",), "लास"),
+    ],
+)
+def test_second_real_transcript_errors_are_normalised(
+    tokens: tuple[str, ...],
+    caption: str,
+) -> None:
+    text, _ = _build_caption_line(tokens)
+    assert text == caption

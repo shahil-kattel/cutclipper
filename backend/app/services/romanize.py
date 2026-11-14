@@ -199,6 +199,82 @@ def _restore_punctuation(text: str) -> str:
     return text.replace(_DANDA_SENTINEL, ".")
 
 
+_COMPOUND_PREFIXES = tuple(
+    sorted(
+        {
+            "गर्नु",
+            "सक्नु",
+            "भन्नु",
+            "दिनु",
+            "लिनु",
+            "हुनु",
+            "जानु",
+            "आउनु",
+            "रहनु",
+            "पर्नु",
+            "खानु",
+            "देख्नु",
+            "पढ्नु",
+            "लेख्नु",
+            "सुन्नु",
+            "बुझ्नु",
+            "राख्नु",
+            "सोध्नु",
+            "भेट्नु",
+            "बनाउनु",
+            "पाउनु",
+            "बेच्नु",
+            "किन्नु",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+_COMPOUND_TAILS = frozenset(
+    {
+        "हुन्छ",
+        "हुन्छन्",
+        "हुन्थ्यो",
+        "हुन्थे",
+        "हुन्छौ",
+        "हुन्छु",
+        "हुन्छिन्",
+        "भयो",
+        "भए",
+        "भएको",
+        "होस्",
+        "पर्छ",
+        "पर्दा",
+        "पर्ने",
+        "भन्दा",
+        "सक्छ",
+        "सक्छन्",
+    }
+)
+
+
+def _split_compound_verb(text: str, *, depth: int) -> str | None:
+    """Split honorific/auxiliary compounds that are two Roman words.
+
+    ``सक्नुहुन्छ`` is one Devanagari token but reads as ``saknu hunchha`` in
+    Roman Nepali; the same pattern applies to ``गर्नुपर्छ`` and the honorific
+    ``...नुहुन्छ`` forms.
+    """
+
+    lexicon = _lexicon()
+    for prefix in _COMPOUND_PREFIXES:
+        if len(text) <= len(prefix) + 1 or not text.startswith(prefix):
+            continue
+        tail = text[len(prefix) :]
+        if tail not in _COMPOUND_TAILS and tail not in lexicon.suffixes:
+            continue
+        prefix_roman = _lookup_roman(prefix, allow_english=False, depth=depth + 1)
+        tail_roman = _lookup_roman(tail, allow_english=False, depth=depth + 1)
+        if prefix_roman and tail_roman:
+            return f"{prefix_roman} {tail_roman}"
+    return None
+
+
 def _lookup_roman(text: str, *, allow_english: bool = True, depth: int = 0) -> str | None:
     """Find a curated Roman spelling, optionally crossing the English glossary."""
 
@@ -222,11 +298,16 @@ def _lookup_roman(text: str, *, allow_english: bool = True, depth: int = 0) -> s
     if direct:
         return direct
 
+    if depth < 4:
+        compound = _split_compound_verb(lookup, depth=depth)
+        if compound:
+            return compound
+
     # Longest suffix wins so काठमाडौंमा resolves as Kathmandu + मा, not as an
     # unknown word ending in ा.
     if len(lookup) > 2:
         for suffix in lexicon.suffix_order:
-            if len(lookup) <= len(suffix) + 1 or not lookup.endswith(suffix):
+            if len(lookup) <= len(suffix) or not lookup.endswith(suffix):
                 continue
             stem = lookup[: -len(suffix)]
             roman_stem = lexicon.words.get(stem)
@@ -272,6 +353,13 @@ def _romanize_mixed_script(text: str, *, depth: int = 0) -> str:
     for match in _DEVANAGARI_WORD_RE.finditer(text):
         if match.start() > cursor:
             parts.append(_romanize_non_word(text[cursor : match.start()]))
+        if parts:
+            # Mixed tokens such as ``YouTubeमा`` carry a Nepali case suffix.
+            # In Roman they should read as two words ("YouTube ma"), not one
+            # run-together token.
+            previous = parts[-1]
+            if previous and previous[-1].isascii() and previous[-1].isalnum():
+                parts.append(" ")
         parts.append(_romanize_dev_run(match.group(), depth=depth))
         cursor = match.end()
     if cursor < len(text):
