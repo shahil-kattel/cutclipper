@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Download, Pause, Play, Sparkles, X } from 'lucide-react'
-import type { CaptionSegment, CaptionSettings, Job } from '../types/api'
-import { assetUrl, downloadAllUrl, errorMessage } from '../lib/api'
+import { useEffect, useRef, useState } from 'react'
+import { Pause, Play, Sparkles, X } from 'lucide-react'
+import type { CaptionSegment, CaptionSettings, Job, NepaliScript } from '../types/api'
+import { assetUrl, errorMessage, jobSourceUrl } from '../lib/api'
 import { cn, formatDuration } from '../lib/utils'
 import { Button } from './ui'
 import { CaptionPreview } from './CaptionPreview'
@@ -10,17 +10,21 @@ import { CaptionStyleControls, CaptionToggleRow, NepaliScriptToggle } from './Ca
 export function CaptionExportStudio({
   job,
   segments,
+  romanSegments,
   initialCaptions,
   onApply,
   onClose,
   onEditText,
+  onScriptChange,
 }: {
   job: Job
   segments?: CaptionSegment[]
+  romanSegments?: CaptionSegment[] | null
   initialCaptions?: CaptionSettings
   onApply: (captions: CaptionSettings) => Promise<void>
   onClose: () => void
   onEditText?: () => void
+  onScriptChange?: (script: NepaliScript) => void
 }) {
   const [draft, setDraft] = useState<CaptionSettings>(() =>
     structuredClone(initialCaptions ?? job.settings.captions),
@@ -28,6 +32,8 @@ export function CaptionExportStudio({
   const [playing, setPlaying] = useState(true)
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [videoFailed, setVideoFailed] = useState(false)
+  const previewVideoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -40,15 +46,13 @@ export function CaptionExportStudio({
   const previewWidth = primaryClip?.width ?? 1080
   const previewHeight = primaryClip?.height ?? 1920
   const aspect = `${previewWidth} / ${previewHeight}`
-  const previewSegment = segments?.find((segment) => segment.text.trim())
-  const previewTime = previewSegment
-    ? Math.min(
-        previewSegment.start + 0.01,
-        Math.max(previewSegment.start, previewSegment.end - 0.001),
-      )
-    : undefined
-  const downloadHref =
-    captionMode && primaryClip ? assetUrl(primaryClip.download_url) : downloadAllUrl(job)
+  const previewSegments =
+    (draft.nepali_script ?? 'devanagari') === 'roman' && romanSegments?.length
+      ? romanSegments
+      : (segments ?? [])
+  const previewWords = previewSegments.flatMap((segment) => segment.words ?? [])
+  const clipStart = primaryClip?.start ?? 0
+  const clipEnd = primaryClip?.end ?? job.video?.duration ?? 0
   const changed = JSON.stringify(draft) !== JSON.stringify(job.settings.captions)
 
   const apply = async () => {
@@ -60,6 +64,22 @@ export function CaptionExportStudio({
     } catch (err) {
       setError(errorMessage(err))
       setApplying(false)
+    }
+  }
+
+  useEffect(() => {
+    const video = previewVideoRef.current
+    if (!video) return
+    if (playing) void video.play().catch(() => undefined)
+    else video.pause()
+  }, [playing])
+
+  const syncClipWindow = (video: HTMLVideoElement) => {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return
+    const start = Math.min(clipStart, Math.max(0, video.duration - 0.1))
+    const end = Math.min(clipEnd || video.duration, video.duration)
+    if (video.currentTime < start - 0.05 || video.currentTime >= end - 0.02) {
+      video.currentTime = start
     }
   }
 
@@ -75,8 +95,8 @@ export function CaptionExportStudio({
             Finish the captions before you download.
           </h2>
           <p className="mt-1 max-w-2xl text-[11.5px] leading-5 text-ink-soft">
-            Same cuts, same words, fresh look. The motion preview is a live reference for the
-            rendered export. Your current files stay downloadable while the new version renders.
+            Same cuts, same words, fresh look. The motion preview is live, and the next download
+            uses this style with the latest subtitle text automatically.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
@@ -121,7 +141,28 @@ export function CaptionExportStudio({
               className="relative mx-auto w-full max-w-[18rem] overflow-hidden rounded-[0.8rem] border-[1.5px] border-ink bg-[#171411]"
               style={{ aspectRatio: aspect }}
             >
-              {job.video?.thumbnail_url ? (
+              {!videoFailed ? (
+                <video
+                  ref={previewVideoRef}
+                  src={jobSourceUrl(job.id)}
+                  poster={job.video?.thumbnail_url ? assetUrl(job.video.thumbnail_url) : undefined}
+                  muted
+                  autoPlay
+                  playsInline
+                  preload="metadata"
+                  className="absolute inset-0 h-full w-full object-cover"
+                  aria-label="Live caption preview"
+                  onLoadedMetadata={(event) => syncClipWindow(event.currentTarget)}
+                  onTimeUpdate={(event) => {
+                    const video = event.currentTarget
+                    if (video.currentTime >= clipEnd - 0.02) {
+                      video.currentTime = clipStart
+                      if (!playing) video.pause()
+                    }
+                  }}
+                  onError={() => setVideoFailed(true)}
+                />
+              ) : job.video?.thumbnail_url ? (
                 <img
                   src={assetUrl(job.video.thumbnail_url)}
                   alt=""
@@ -134,11 +175,9 @@ export function CaptionExportStudio({
               {draft.enabled ? (
                 <CaptionPreview
                   settings={draft}
-                  segments={previewSegment ? [previewSegment] : undefined}
-                  words={previewSegment?.words}
-                  time={previewTime}
-                  loop={!previewSegment}
-                  paused={!playing}
+                  segments={previewSegments.length ? previewSegments : undefined}
+                  words={previewWords.length ? previewWords : undefined}
+                  video={previewVideoRef}
                   videoWidth={previewWidth}
                   videoHeight={previewHeight}
                   className="absolute inset-0"
@@ -191,7 +230,10 @@ export function CaptionExportStudio({
               </div>
               <NepaliScriptToggle
                 value={draft.nepali_script ?? 'devanagari'}
-                onChange={(nepali_script) => setDraft((current) => ({ ...current, nepali_script }))}
+                onChange={(nepali_script) => {
+                  setDraft((current) => ({ ...current, nepali_script }))
+                  onScriptChange?.(nepali_script)
+                }}
                 devanagariFont={draft.secondary_font}
               />
             </div>
@@ -214,14 +256,9 @@ export function CaptionExportStudio({
           ) : null}
 
           <div className="flex flex-col gap-2.5 border-t border-dashed border-ink/25 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <a
-              href={downloadHref}
-              download={captionMode ? primaryClip?.filename : 'cutclipper-clips.zip'}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border-[1.5px] border-ink/30 bg-paper px-3 text-[11px] font-semibold text-ink-soft transition hover:border-ink hover:bg-mustard-soft hover:text-ink"
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              Download current export
-            </a>
+            <p className="text-[10px] leading-4 text-ink-soft">
+              Downloads automatically use this style with the latest subtitle text.
+            </p>
             <Button
               onClick={apply}
               loading={applying}
@@ -229,16 +266,12 @@ export function CaptionExportStudio({
               icon={applying ? undefined : Sparkles}
               className="shrink-0"
             >
-              {applying
-                ? 'Starting fresh render'
-                : captionMode
-                  ? 'Apply & re-render video'
-                  : `Apply & re-render ${job.clips.length} ${job.clips.length === 1 ? 'clip' : 'clips'}`}
+              {applying ? 'Saving style' : 'Save style'}
             </Button>
           </div>
           {!changed ? (
             <p className="text-right text-[9.5px] text-ink-faint">
-              Change a caption property to enable a fresh render.
+              Change a caption property to enable saving.
             </p>
           ) : null}
         </div>

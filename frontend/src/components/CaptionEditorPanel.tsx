@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Captions,
+  Download,
   FileText,
   Languages,
   LoaderCircle,
@@ -515,6 +516,8 @@ export function CaptionEditorDrawer({
   applyLabel = 'Save lines',
   onApply,
   onDownloadSrt,
+  onDownloadVideo,
+  downloadingVideo = false,
   applying = false,
   applyDisabled = false,
   title = 'Edit captions',
@@ -540,6 +543,9 @@ export function CaptionEditorDrawer({
   applyLabel?: string
   onApply?: () => void | Promise<void>
   onDownloadSrt?: () => void
+  /** Render the current lines/style and download the finished clip. */
+  onDownloadVideo?: () => void
+  downloadingVideo?: boolean
   applying?: boolean
   applyDisabled?: boolean
   title?: string
@@ -695,6 +701,18 @@ export function CaptionEditorDrawer({
                     disabled={!segments.length}
                   >
                     Download .SRT
+                  </Button>
+                ) : null}
+                {onDownloadVideo ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={Download}
+                    loading={downloadingVideo}
+                    onClick={onDownloadVideo}
+                    disabled={!segments.length || downloadingVideo}
+                  >
+                    Download video
                   </Button>
                 ) : null}
                 <Button variant="ghost" size="sm" onClick={onClose} disabled={applying}>

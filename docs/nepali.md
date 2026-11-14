@@ -637,11 +637,16 @@ writes it phonetically in Roman letters. Add the spelling to
   update the `.SRT` download without a render. Switching to Roman edits the
   Roman track directly; the Devanagari source stays canonical for translation.
   On the Download screen the drawer loads the burned-in lines from
-  `GET /api/jobs/{id}/captions`; the optional **Update video** action sends the
-  edited track to `POST /api/jobs/{id}/restyle`, which re-renders the same cuts
-  and style. On the Style screen the edited lines are passed to the next
-  `POST /api/jobs` render. Roman is used for the render when it has manual
-  edits; otherwise the server transliterates the source.
+  `GET /api/jobs/{id}/captions`. The player previews the clean source from
+  `GET /api/jobs/{id}/source` with the live caption overlay, so text, size, and
+  position edits update immediately without touching the rendered MP4.
+  Downloading the clip automatically sends the current track and style to
+  `POST /api/jobs/{id}/restyle`, waits for that fresh render, and downloads it;
+  there is no separate **Update video** step. The download button in the shared
+  drawer does the same from the other screens when a completed export exists.
+  On the Style screen the edited lines are passed to the next `POST /api/jobs`
+  render. Roman is used for the render when it has manual edits; otherwise the
+  server transliterates the source.
 - Nepali → English translation prompt: `backend/app/services/translator.py`.
   English-only lines are kept unchanged; only Nepali and mixed lines are sent
   through translation. Translation always uses the canonical Devanagari lines,

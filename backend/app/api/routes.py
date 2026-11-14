@@ -412,6 +412,26 @@ async def job_captions(job_id: str, request: Request) -> JobCaptionsResponse:
     )
 
 
+@router.get("/jobs/{job_id}/source")
+async def job_source(job_id: str, request: Request) -> FileResponse:
+    """Stream the clean source video for a live caption preview."""
+
+    record = _manager(request).get(job_id)
+    path = record.source_path
+    if path is None or not path.exists():
+        raise AppError(
+            "That source video is no longer available.",
+            code="source_not_available",
+            status_code=404,
+        )
+    media_type = _VIDEO_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=3600", "Accept-Ranges": "bytes"},
+    )
+
+
 @router.get("/jobs/{job_id}", response_model=JobOut)
 async def get_job(job_id: str, request: Request) -> JobOut:
     return _manager(request).snapshot(job_id)

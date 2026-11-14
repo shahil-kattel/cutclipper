@@ -13,8 +13,10 @@ import { ToastProvider } from './components/Toast'
 import { useToast } from './hooks/useToast'
 import { useJobStream } from './hooks/useJobStream'
 import {
+  assetUrl,
   cancelJob,
   createJob,
+  downloadAllUrl,
   errorMessage,
   getJob,
   getJobCaptions,
@@ -27,11 +29,7 @@ import {
   uploadVideo,
 } from './lib/api'
 import { clearActiveJob, readActiveJob, storeActiveJob } from './lib/activeJob'
-import {
-  clearCaptionDraft,
-  readCaptionDraft,
-  writeCaptionDraft,
-} from './lib/captionDrafts'
+import { clearCaptionDraft, readCaptionDraft, writeCaptionDraft } from './lib/captionDrafts'
 import { downloadSrt } from './lib/srt'
 import { DEFAULT_SETTINGS, formatDuration, pluralize } from './lib/utils'
 import { CAPTION_FONT_OPTIONS } from './lib/captionFonts'
@@ -92,9 +90,9 @@ function AppContent() {
   const [captionEditorOpen, setCaptionEditorOpen] = useState(false)
   const [captionEditorLoading, setCaptionEditorLoading] = useState(false)
   const [captionEditorError, setCaptionEditorError] = useState<string | null>(null)
-  const [captionEditorApplying, setCaptionEditorApplying] = useState(false)
   const [captionEditorDuration, setCaptionEditorDuration] = useState<number | null>(null)
   const [captionEditorScript, setCaptionEditorScript] = useState<NepaliScript | null>(null)
+  const [downloadingEditorVideo, setDownloadingEditorVideo] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [generationError, setGenerationError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -837,29 +835,6 @@ function AppContent() {
     await startRender()
   }, [createdJob, restyleParent, startCaptionRender, startRender, toast])
 
-  const restyleCurrentJob = useCallback(
-    async (captions: CaptionSettings, segments?: CaptionSegment[]) => {
-      if (!job) throw new Error('This export is no longer available.')
-      const token = ++generationToken.current
-      setGenerationError(null)
-      setCancelRequested(false)
-      handledStatus.current = null
-      const updated = await restyleJob(job.id, captions, segments)
-      if (generationToken.current !== token) {
-        void cancelJob(updated.id).catch(() => undefined)
-        return
-      }
-      storeActiveJob(updated)
-      setSettings(updated.settings)
-      setCaptionSettings(updated.settings.captions)
-      setRestyleParent(job)
-      setJobId(updated.id)
-      setCreatedJob(updated)
-      setStep('processing')
-    },
-    [job],
-  )
-
   const loadJobCaptions = useCallback(
     async (jobId: string, notify = false) => {
       const requestId = ++captionEditorRequest.current
@@ -1004,42 +979,89 @@ function AppContent() {
   ])
 
   const applyCaptionEdits = useCallback(() => {
-    // Text edits are already saved. The rendered MP4 is only rewritten when
-    // the user explicitly asks for it.
+    // Text edits are already saved; downloads render the latest lines.
     setCaptionEditorOpen(false)
   }, [])
 
-  const updateVideoWithEdits = useCallback(async () => {
-    if (!job) return
+  const prepareVideoWithCaptions = useCallback(
+    async (captions: CaptionSettings, segments: CaptionSegment[]): Promise<Job> => {
+      if (!job) throw new Error('This export is no longer available.')
+      if (!segments.length) throw new Error('Add at least one caption line first.')
+      const queued = await restyleJob(job.id, captions, segments)
+      let current = queued
+      const deadline = Date.now() + 10 * 60 * 1000
+      while (current.status === 'queued' || current.status === 'running') {
+        if (Date.now() > deadline) {
+          throw new Error('Preparing the updated video is taking too long. Please try again.')
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 700))
+        current = await getJob(current.id)
+      }
+      if (current.status !== 'completed') {
+        throw new Error(current.error_message || 'The updated video could not be prepared.')
+      }
+      clearCaptionDraft(`job:${job.id}`)
+      captionJobLoaded.current = current.id
+      storeActiveJob(current)
+      setSettings(current.settings)
+      setCaptionSettings(current.settings.captions)
+      setCaptionEditorDuration(current.video?.duration ?? null)
+      // Keep the canonical Devanagari source when the Roman track is the one
+      // being rendered; only fill an empty editor from the prepared lines.
+      setCaptionSegments((existing) => (existing.length ? existing : segments))
+      setRestyleParent(job)
+      setJobId(current.id)
+      setCreatedJob(current)
+      return current
+    },
+    [job],
+  )
+
+  const downloadEditorVideo = useCallback(async () => {
+    if (!job || downloadingEditorVideo) return
     const script = captionEditScript
-    const primary =
+    const segments =
       script === 'roman' && captionRomanSegments?.length ? captionRomanSegments : captionSegments
-    if (!primary.length) {
-      toast.info('Add at least one caption line before updating the video.')
+    if (!segments.length) {
+      toast.info('Add at least one caption line before downloading.')
       return
     }
-    const oldKey = `job:${job.id}`
-    setCaptionEditorApplying(true)
+    const captions = {
+      ...(step === 'caption' ? captionSettings : settings.captions),
+      enabled: true,
+      nepali_script: script,
+    }
+    setDownloadingEditorVideo(true)
     try {
-      await restyleCurrentJob(
-        { ...job.settings.captions, enabled: true, nepali_script: script },
-        primary,
-      )
-      clearCaptionDraft(oldKey)
+      const prepared = await prepareVideoWithCaptions(captions, segments)
+      const link = document.createElement('a')
+      if (prepared.mode === 'captions' && prepared.clips[0]) {
+        link.href = assetUrl(prepared.clips[0].download_url)
+        link.download = prepared.clips[0].filename
+      } else {
+        link.href = downloadAllUrl(prepared)
+        link.download = 'cutclipper-clips.zip'
+      }
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      toast.success('Downloading your updated captions.')
       setCaptionEditorOpen(false)
     } catch (error) {
-      const message = errorMessage(error)
-      setCaptionEditorError(message)
-      toast.error(message)
+      toast.error(errorMessage(error))
     } finally {
-      setCaptionEditorApplying(false)
+      setDownloadingEditorVideo(false)
     }
   }, [
     captionEditScript,
     captionRomanSegments,
     captionSegments,
+    captionSettings,
+    downloadingEditorVideo,
     job,
-    restyleCurrentJob,
+    prepareVideoWithCaptions,
+    settings.captions,
+    step,
     toast,
   ])
 
@@ -1255,6 +1277,9 @@ function AppContent() {
                   generating={generating}
                   generationError={generationError}
                   onEditCaptions={() => void openCaptionEditor()}
+                  captionSegments={captionSegments}
+                  captionRomanSegments={captionRomanSegments}
+                  captionScript={captionEditScript}
                 />
               ) : null}
 
@@ -1293,9 +1318,12 @@ function AppContent() {
                   captionScript={captionEditScript}
                   onNewProject={startOver}
                   onEditSettings={editSettings}
-                  onRestyle={restyleCurrentJob}
                   onEditCaptions={() => void openCaptionEditor()}
-                  onUpdateVideo={updateVideoWithEdits}
+                  onCaptionStyleChange={(captions) => {
+                    setCaptionSettings(captions)
+                    setSettings((current) => ({ ...current, captions }))
+                  }}
+                  onPrepareVideo={prepareVideoWithCaptions}
                   canEditSettings={Boolean(preview)}
                 />
               ) : null}
@@ -1313,9 +1341,7 @@ function AppContent() {
           captionEditScript === 'roman' ? (captionRomanSegments ?? []) : activeCaptionSegments
         }
         duration={captionEditDuration}
-        onChange={
-          captionEditScript === 'roman' ? updateRomanSegments : updateActiveCaptionSegments
-        }
+        onChange={captionEditScript === 'roman' ? updateRomanSegments : updateActiveCaptionSegments}
         script={captionEditScript}
         onScriptChange={changeCaptionScript}
         devanagariFont={captionEditSettings.secondary_font}
@@ -1346,15 +1372,17 @@ function AppContent() {
         canTranscribe={step !== 'processing' && Boolean(captionEditorUploadId)}
         notice={
           step === 'processing'
-            ? 'This export is rendering. Your edits save instantly and can be applied with Update video when it finishes.'
+            ? 'This export is rendering. Your edits save instantly; download the updated clip when it finishes.'
             : step === 'caption'
               ? 'Edits save instantly in the studio. Switch to Roman to edit that track directly.'
               : step === 'results'
-                ? 'Edits save instantly and update the .SRT download. The MP4 keeps the last render until you press Update video.'
+                ? 'Edits save instantly. Download video renders the latest lines and style automatically.'
                 : 'Edits save instantly and will be used by the next render. Switch to Roman to edit that track directly.'
         }
         applyLabel="Save & close"
         onApply={applyCaptionEdits}
+        onDownloadVideo={job?.status === 'completed' ? () => void downloadEditorVideo() : undefined}
+        downloadingVideo={downloadingEditorVideo}
         onDownloadSrt={() =>
           downloadSrt(
             captionEditScript === 'roman' && captionRomanSegments?.length
@@ -1363,7 +1391,6 @@ function AppContent() {
             `${job?.video?.title || preview?.title || 'cutclipper-captions'}.srt`,
           )
         }
-        applying={captionEditorApplying}
       />
     </div>
   )

@@ -125,6 +125,24 @@ def _char_units(char: str) -> float:
         return 0.32
     if char in "mwMW@":
         return 0.85
+    if "ऀ" <= char <= "ॿ":
+        # Devanagari is an abugida: vowel signs, the virama, anusvara, and
+        # candrabindu combine with the preceding consonant and add almost no
+        # advance width. Counting every code point as a full letter made the
+        # renderer wrap lines that fit on screen (and in the live preview).
+        if char == "्":  # virama
+            return 0.02
+        if char in "ँंः":
+            return 0.08
+        if "ऺ" <= char <= "ॏ" or "ॕ" <= char <= "ॗ":
+            return 0.06
+        if char in "।॥":  # danda / double danda
+            return 0.3
+        if char.isdigit():
+            return 0.55
+        if "ऄ" <= char <= "ह" or "क़" <= char <= "य़":
+            return 0.58
+        return 0.3
     if char.isupper():
         return 0.63
     return 0.53

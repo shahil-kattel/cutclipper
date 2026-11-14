@@ -19,9 +19,11 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import type {
   AspectRatio,
+  CaptionSegment,
   ClipSettings,
   ExportQuality,
   ExportResolution,
+  NepaliScript,
   PreviewResponse,
   ReframeMode,
   TranscriptionQuality,
@@ -56,6 +58,10 @@ interface SettingsStepProps {
   generating: boolean
   generationError: string | null
   onEditCaptions?: () => void
+  /** Current edited lines, so the still preview matches the caption editor. */
+  captionSegments?: CaptionSegment[]
+  captionRomanSegments?: CaptionSegment[] | null
+  captionScript?: NepaliScript
 }
 
 const CAPTION_LANGUAGES = [
@@ -145,6 +151,9 @@ export function SettingsStep({
   generating,
   generationError,
   onEditCaptions,
+  captionSegments,
+  captionRomanSegments,
+  captionScript = 'devanagari',
 }: SettingsStepProps) {
   const update = (patch: Partial<ClipSettings>) => {
     onSettingsChange({ ...settings, ...patch })
@@ -884,7 +893,11 @@ export function SettingsStep({
           transition={{ duration: 0.5, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
           className="hidden lg:sticky lg:top-[5.25rem] lg:block"
         >
-          <PreviewPhone preview={preview} settings={settings} />
+          <PreviewPhone
+            preview={preview}
+            settings={settings}
+            segments={captionScript === 'roman' ? (captionRomanSegments ?? []) : captionSegments}
+          />
           <div className="glass mt-4 rounded-2xl p-4">
             <Button
               onClick={onGenerate}
@@ -1001,9 +1014,24 @@ function ModeButton({
   )
 }
 
-function PreviewPhone({ preview, settings }: { preview: PreviewResponse; settings: ClipSettings }) {
+function PreviewPhone({
+  preview,
+  settings,
+  segments,
+}: {
+  preview: PreviewResponse
+  settings: ClipSettings
+  segments?: CaptionSegment[]
+}) {
   const [imageFailed, setImageFailed] = useState(false)
   const outputSize = aspectPixelSize(settings.aspect_ratio)
+  const previewSegment = segments?.find((segment) => segment.text.trim())
+  const previewTime = previewSegment
+    ? Math.min(
+        previewSegment.start + 0.01,
+        Math.max(previewSegment.start, previewSegment.end - 0.001),
+      )
+    : undefined
 
   return (
     <div className="paper-card taped taped-pink rotate-[0.8deg] p-3 pb-2">
@@ -1052,7 +1080,10 @@ function PreviewPhone({ preview, settings }: { preview: PreviewResponse; setting
           {settings.captions.enabled ? (
             <CaptionPreview
               settings={settings.captions}
-              loop
+              segments={previewSegment ? [previewSegment] : undefined}
+              words={previewSegment?.words}
+              time={previewTime}
+              loop={!previewSegment}
               videoWidth={outputSize.width}
               videoHeight={outputSize.height}
               className="absolute inset-0"

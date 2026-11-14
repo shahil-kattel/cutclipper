@@ -297,6 +297,10 @@ export function jobEventsUrl(jobId: string): string {
   return apiUrl(`/jobs/${encodeURIComponent(jobId)}/events`)
 }
 
+export function jobSourceUrl(jobId: string): string {
+  return assetUrl(`/api/jobs/${encodeURIComponent(jobId)}/source`)
+}
+
 export function downloadAllUrl(job: Job): string {
   return assetUrl(job.download_all_url || `/api/jobs/${job.id}/download.zip`)
 }

@@ -27,7 +27,7 @@ import type {
   Job,
   NepaliScript,
 } from '../types/api'
-import { assetUrl, downloadAllUrl, errorMessage } from '../lib/api'
+import { assetUrl, downloadAllUrl, errorMessage, jobSourceUrl } from '../lib/api'
 import { downloadSrt } from '../lib/srt'
 import {
   clamp,
@@ -46,7 +46,6 @@ interface ResultsStepProps {
   job: Job
   onNewProject: () => void
   onEditSettings: () => void
-  onRestyle: (captions: CaptionSettings, segments?: CaptionSegment[]) => Promise<void>
   canEditSettings?: boolean
   /** Source-language lines from the editor, used for a faithful style preview. */
   captionSegments?: CaptionSegment[]
@@ -56,25 +55,32 @@ interface ResultsStepProps {
   captionScript?: NepaliScript
   /** Opens the shared caption editor (text, timing, and script). */
   onEditCaptions?: () => void
-  /** Rewrites the MP4 with the edited lines. Text edits do not require this. */
-  onUpdateVideo?: () => Promise<void>
+  /** Keeps the app-level settings in sync with style edits on this page. */
+  onCaptionStyleChange?: (captions: CaptionSettings) => void
+  /** Switches the global caption track to Devanagari or Roman. */
+  onScriptChange?: (script: NepaliScript) => void
+  /** Renders the current lines/style and resolves when the clip is ready. */
+  onPrepareVideo: (captions: CaptionSettings, segments: CaptionSegment[]) => Promise<Job>
 }
 
 export function ResultsStep({
   job,
   onNewProject,
   onEditSettings,
-  onRestyle,
   canEditSettings = true,
   captionSegments,
   captionRomanSegments,
   captionScript = 'devanagari',
   onEditCaptions,
-  onUpdateVideo,
+  onCaptionStyleChange,
+  onScriptChange,
+  onPrepareVideo,
 }: ResultsStepProps) {
   const toast = useToast()
   const [editingCaptions, setEditingCaptions] = useState(false)
-  const [updatingVideo, setUpdatingVideo] = useState(false)
+  const [preparingVideo, setPreparingVideo] = useState(false)
+  const [preparingClipIndex, setPreparingClipIndex] = useState<number | null>(null)
+  const preparedFingerprint = useRef<{ jobId: string; fingerprint: string } | null>(null)
   const [captionDraft, setCaptionDraft] = useState<CaptionSettings>(() =>
     structuredClone(job.settings.captions),
   )
@@ -90,26 +96,29 @@ export function ResultsStep({
   }, [job.id, job.settings.captions, captionSegments])
   const clips = [...job.clips].sort((a, b) => a.index - b.index)
   const totalSize = clips.reduce((sum, clip) => sum + clip.file_size, 0)
-  const allUrl = downloadAllUrl(job)
   const captionMode = job.mode === 'captions'
   const primaryClip = clips[0]
   const activePreviewClip = clips.find((clip) => clip.id === previewClipId) ?? primaryClip
-  const primaryUrl = captionMode && primaryClip ? assetUrl(primaryClip.download_url) : allUrl
-  // The edited track is what the .SRT export uses. Text edits are saved as
-  // they are typed; the MP4 only changes when Update video is pressed.
+  const sourceUrl = jobSourceUrl(job.id)
+  // The edited track is what the preview and .SRT export use. Text edits are
+  // saved as they are typed; downloads apply the latest lines automatically.
   const editedCaptionSegments =
     captionScript === 'roman' && captionRomanSegments?.length
       ? captionRomanSegments
       : previewCaptionSegments
+  const renderCaptions: CaptionSettings = {
+    ...captionDraft,
+    enabled: true,
+    nepali_script: captionScript,
+  }
+  const downloadFingerprint = JSON.stringify({
+    captions: renderCaptions,
+    segments: editedCaptionSegments,
+  })
 
-  const handleUpdateVideo = async () => {
-    if (!onUpdateVideo || updatingVideo) return
-    setUpdatingVideo(true)
-    try {
-      await onUpdateVideo()
-    } finally {
-      setUpdatingVideo(false)
-    }
+  const updateCaptionDraft = (captions: CaptionSettings) => {
+    setCaptionDraft(captions)
+    onCaptionStyleChange?.(captions)
   }
 
   const previewClip = (clip: Clip) => {
@@ -117,12 +126,64 @@ export function ResultsStep({
     previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  const handleDownloadAll = () => {
-    toast.success(
-      captionMode
-        ? 'Downloading your captioned video.'
-        : `Preparing ${clips.length} ${pluralize(clips.length, 'clip')} as a ZIP.`,
-    )
+  const triggerDownload = (href: string, filename: string) => {
+    const link = document.createElement('a')
+    link.href = href
+    link.download = filename
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  }
+
+  const downloadLatest = async ({
+    clipIndex,
+    zip = false,
+  }: {
+    clipIndex?: number
+    zip?: boolean
+  } = {}) => {
+    if (preparingVideo) return
+    if (!editedCaptionSegments.length) {
+      toast.info('Add at least one subtitle line before downloading.')
+      return
+    }
+    const cached = preparedFingerprint.current
+    let prepared = job
+    const isPrepared = cached?.jobId === job.id && cached.fingerprint === downloadFingerprint
+    if (!isPrepared) {
+      setPreparingVideo(true)
+      setPreparingClipIndex(clipIndex ?? null)
+      toast.info('Preparing your clip with the latest subtitles…')
+      try {
+        prepared = await onPrepareVideo(renderCaptions, editedCaptionSegments)
+        preparedFingerprint.current = {
+          jobId: prepared.id,
+          fingerprint: downloadFingerprint,
+        }
+      } catch (error) {
+        toast.error(errorMessage(error))
+        return
+      } finally {
+        setPreparingVideo(false)
+        setPreparingClipIndex(null)
+      }
+    }
+    if (zip) {
+      triggerDownload(downloadAllUrl(prepared), 'cutclipper-clips.zip')
+      toast.success(`Downloading ${pluralize(prepared.clips.length, 'clip')} as a ZIP.`)
+      return
+    }
+    const target =
+      prepared.clips.find((clip) => clip.index === clipIndex) ??
+      prepared.clips.find((clip) => clip.index === primaryClip?.index) ??
+      prepared.clips[0]
+    if (!target) {
+      toast.error('The updated clip could not be found.')
+      return
+    }
+    triggerDownload(assetUrl(target.download_url), target.filename)
+    toast.success('Downloading your updated clip.')
   }
 
   return (
@@ -184,26 +245,11 @@ export function ResultsStep({
             icon={FileText}
             disabled={!editedCaptionSegments.length}
             onClick={() =>
-              downloadSrt(
-                editedCaptionSegments,
-                `${job.video?.title || 'cutclipper-captions'}.srt`,
-              )
+              downloadSrt(editedCaptionSegments, `${job.video?.title || 'cutclipper-captions'}.srt`)
             }
           >
             Download .SRT
           </Button>
-          {onUpdateVideo ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={RotateCcw}
-              loading={updatingVideo}
-              disabled={!editedCaptionSegments.length || updatingVideo}
-              onClick={() => void handleUpdateVideo()}
-            >
-              Update video
-            </Button>
-          ) : null}
           {!editingCaptions ? (
             <Button
               variant="secondary"
@@ -225,20 +271,22 @@ export function ResultsStep({
           <Button variant="secondary" size="sm" onClick={onNewProject} icon={RotateCcw}>
             New video
           </Button>
-          <a
-            href={primaryUrl}
-            download={captionMode ? primaryClip?.filename : 'cutclipper-clips.zip'}
-            onClick={handleDownloadAll}
-            className="col-span-2 inline-flex h-10 items-center justify-center gap-2 rounded-xl border-[1.5px] border-ink bg-tomato px-4 text-[12.5px] font-semibold text-paper-soft shadow-[3px_4px_0_#211d19] transition hover:-translate-y-0.5 hover:bg-tomato-bright hover:shadow-[4px_5px_0_#211d19] active:translate-y-[3px] active:shadow-none sm:col-span-1"
+          <button
+            type="button"
+            onClick={() =>
+              void downloadLatest(captionMode ? { clipIndex: primaryClip?.index } : { zip: true })
+            }
+            disabled={preparingVideo}
+            className="col-span-2 inline-flex h-10 items-center justify-center gap-2 rounded-xl border-[1.5px] border-ink bg-tomato px-4 text-[12.5px] font-semibold text-paper-soft shadow-[3px_4px_0_#211d19] transition hover:-translate-y-0.5 hover:bg-tomato-bright hover:shadow-[4px_5px_0_#211d19] active:translate-y-[3px] active:shadow-none disabled:cursor-wait disabled:opacity-70 disabled:hover:translate-y-0 sm:col-span-1"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
-            {captionMode ? 'Download video' : 'Download all'}
+            {preparingVideo ? 'Preparing…' : captionMode ? 'Download video' : 'Download all'}
             {captionMode ? null : (
               <span className="rounded bg-black/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">
                 ZIP
               </span>
             )}
-          </a>
+          </button>
         </div>
       </motion.div>
 
@@ -275,6 +323,12 @@ export function ResultsStep({
             activeClip={activePreviewClip}
             captionMode={captionMode}
             onSelect={setPreviewClipId}
+            sourceUrl={sourceUrl}
+            posterUrl={job.video?.thumbnail_url ?? activePreviewClip.thumbnail_url}
+            captionSettings={renderCaptions}
+            captionSegments={editedCaptionSegments}
+            preparing={preparingVideo}
+            onDownloadClip={() => void downloadLatest({ clipIndex: activePreviewClip.index })}
             captionEditor={
               (captionMode || job.settings.captions.enabled) && !editingCaptions ? (
                 <CaptionQuickEdit
@@ -283,16 +337,9 @@ export function ResultsStep({
                   romanSegments={captionRomanSegments}
                   script={captionScript}
                   draft={captionDraft}
-                  onDraftChange={setCaptionDraft}
-                  onRestyle={(captions) =>
-                    onRestyle(
-                      captions,
-                      (captions.nepali_script ?? 'devanagari') === 'roman' &&
-                        captionRomanSegments?.length
-                        ? captionRomanSegments
-                        : previewCaptionSegments,
-                    )
-                  }
+                  onDraftChange={updateCaptionDraft}
+                  preparing={preparingVideo}
+                  onDownload={() => void downloadLatest({ clipIndex: activePreviewClip.index })}
                   onEditLines={() => onEditCaptions?.()}
                   onOpenFull={() => {
                     setEditingCaptions(true)
@@ -315,18 +362,15 @@ export function ResultsStep({
             key={job.id}
             job={job}
             initialCaptions={captionDraft}
-            segments={editedCaptionSegments}
-            onApply={(captions) =>
-              onRestyle(
-                captions,
-                (captions.nepali_script ?? 'devanagari') === 'roman' &&
-                  captionRomanSegments?.length
-                  ? captionRomanSegments
-                  : previewCaptionSegments,
-              )
-            }
+            segments={previewCaptionSegments}
+            romanSegments={captionRomanSegments}
+            onApply={async (captions) => {
+              updateCaptionDraft(captions)
+              setEditingCaptions(false)
+            }}
             onClose={() => setEditingCaptions(false)}
             onEditText={onEditCaptions}
+            onScriptChange={onScriptChange}
           />
         </div>
       ) : null}
@@ -345,7 +389,9 @@ export function ResultsStep({
             index={index}
             aspect={captionMode ? `${clip.width}:${clip.height}` : job.settings.aspect_ratio}
             captionMode={captionMode}
+            preparing={preparingVideo && preparingClipIndex === clip.index}
             onPreview={() => previewClip(clip)}
+            onDownload={() => void downloadLatest({ clipIndex: clip.index })}
           />
         ))}
       </div>
@@ -403,29 +449,81 @@ export function ResultsStep({
   )
 }
 
+/** Rebase full-video caption lines onto one clip's local playhead. */
+function segmentsForClip(
+  segments: CaptionSegment[],
+  clipStart: number,
+  clipLength: number,
+): CaptionSegment[] {
+  return segments
+    .filter((segment) => segment.end > clipStart && segment.start < clipStart + clipLength)
+    .map((segment) => {
+      const start = Math.max(0, segment.start - clipStart)
+      const end = Math.min(clipLength, segment.end - clipStart)
+      const words = segment.words
+        ?.filter((word) => word.end > clipStart && word.start < clipStart + clipLength)
+        .map((word) => ({
+          ...word,
+          start: Math.max(0, word.start - clipStart),
+          end: Math.min(clipLength, word.end - clipStart),
+        }))
+        .filter((word) => word.end > word.start)
+      return { ...segment, start, end, words }
+    })
+    .filter((segment) => segment.end > segment.start && segment.text.trim().length > 0)
+}
+
 function ClipPreview({
   clips,
   activeClip,
   captionMode,
   onSelect,
+  sourceUrl,
+  posterUrl,
+  captionSettings,
+  captionSegments,
+  preparing,
+  onDownloadClip,
   captionEditor,
 }: {
   clips: Clip[]
   activeClip: Clip
   captionMode: boolean
   onSelect: (clipId: string) => void
+  sourceUrl: string
+  posterUrl?: string
+  captionSettings: CaptionSettings
+  captionSegments: CaptionSegment[]
+  preparing: boolean
+  onDownloadClip: () => void
   captionEditor?: ReactNode
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
   const [time, setTime] = useState(0)
-  const [duration, setDuration] = useState(activeClip.duration || 0)
+  const [sourceFailed, setSourceFailed] = useState(false)
   const index = clips.findIndex((clip) => clip.id === activeClip.id)
-  const length = duration || activeClip.duration || 0
+  const clipStart = activeClip.start
+  const clipEnd = activeClip.end
+  const length = Math.max(0.01, activeClip.duration)
+  // The source uses absolute source time; a burned fallback clip is already
+  // trimmed to the clip, so its timeline starts at 0.
+  const playbackStart = sourceFailed ? 0 : clipStart
+  const playbackEnd = sourceFailed ? length : clipEnd
   const title = captionMode
     ? 'Captioned video'
     : `Clip ${String(activeClip.index).padStart(2, '0')}`
+  const previewSegments = segmentsForClip(captionSegments, clipStart, length)
+
+  useEffect(() => {
+    // A link source can download as a container the browser cannot play;
+    // fall back to the last burned render instead of leaving a black player.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSourceFailed(false)
+  }, [activeClip.id, sourceUrl])
+
+  const localTime = (video: HTMLVideoElement) => clamp(video.currentTime - playbackStart, 0, length)
 
   // Smooth playhead while the browser only fires timeupdate a few times a second.
   useEffect(() => {
@@ -433,12 +531,12 @@ function ClipPreview({
     let frame = 0
     const tick = () => {
       const video = videoRef.current
-      if (video) setTime(video.currentTime)
+      if (video) setTime(clamp(video.currentTime - playbackStart, 0, length))
       frame = window.requestAnimationFrame(tick)
     }
     frame = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frame)
-  }, [playing])
+  }, [playing, playbackStart, length])
 
   const togglePlayback = () => {
     const video = videoRef.current
@@ -448,8 +546,8 @@ function ClipPreview({
       setPlaying(false)
       return
     }
-    if (video.ended || (length > 0 && video.currentTime >= length - 0.05)) {
-      video.currentTime = 0
+    if (video.currentTime < playbackStart - 0.05 || video.currentTime >= playbackEnd - 0.05) {
+      video.currentTime = playbackStart
       setTime(0)
     }
     video.play().then(
@@ -462,7 +560,7 @@ function ClipPreview({
     const video = videoRef.current
     if (!video) return
     const next = clamp(value, 0, length)
-    video.currentTime = next
+    video.currentTime = playbackStart + next
     setTime(next)
   }
 
@@ -498,13 +596,14 @@ function ClipPreview({
             <video
               key={activeClip.id}
               ref={videoRef}
-              src={assetUrl(activeClip.video_url)}
-              poster={assetUrl(activeClip.thumbnail_url)}
+              src={sourceFailed ? assetUrl(activeClip.video_url) : sourceUrl}
+              poster={posterUrl ? assetUrl(posterUrl) : undefined}
               muted={muted}
               playsInline
               preload="metadata"
               className="h-full w-full object-cover"
               aria-label={`Preview of ${title.toLowerCase()}`}
+              onError={() => setSourceFailed(true)}
               onClick={togglePlayback}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
@@ -512,13 +611,31 @@ function ClipPreview({
                 setPlaying(false)
                 setTime(length)
               }}
-              onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
+              onTimeUpdate={(event) => {
+                const video = event.currentTarget
+                if (video.currentTime >= playbackEnd - 0.02) {
+                  video.pause()
+                  setTime(length)
+                  return
+                }
+                setTime(localTime(video))
+              }}
               onLoadedMetadata={(event) => {
-                const loaded = event.currentTarget.duration
-                if (Number.isFinite(loaded) && loaded > 0) setDuration(loaded)
+                event.currentTarget.currentTime = playbackStart
+                setTime(0)
               }}
             />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/85" />
+            {captionSettings.enabled && !sourceFailed ? (
+              <CaptionPreview
+                settings={captionSettings}
+                segments={previewSegments}
+                time={time}
+                videoWidth={activeClip.width}
+                videoHeight={activeClip.height}
+                className="absolute inset-0"
+              />
+            ) : null}
 
             <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
               <div className="flex items-center gap-1.5">
@@ -710,14 +827,15 @@ function ClipPreview({
           ) : null}
 
           <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
-            <a
-              href={assetUrl(activeClip.download_url)}
-              download={activeClip.filename}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border-[1.5px] border-ink bg-tomato px-3.5 text-[11.5px] font-semibold text-paper-soft shadow-[2px_3px_0_#211d19] transition hover:-translate-y-0.5 hover:bg-tomato-bright active:translate-y-[2px] active:shadow-none"
+            <button
+              type="button"
+              onClick={onDownloadClip}
+              disabled={preparing}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border-[1.5px] border-ink bg-tomato px-3.5 text-[11.5px] font-semibold text-paper-soft shadow-[2px_3px_0_#211d19] transition hover:-translate-y-0.5 hover:bg-tomato-bright active:translate-y-[2px] active:shadow-none disabled:cursor-wait disabled:opacity-70 disabled:hover:translate-y-0"
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              Download this clip
-            </a>
+              {preparing ? 'Preparing clip…' : 'Download this clip'}
+            </button>
             <a
               href={assetUrl(activeClip.video_url)}
               target="_blank"
@@ -747,7 +865,8 @@ function CaptionQuickEdit({
   script,
   draft,
   onDraftChange,
-  onRestyle,
+  preparing,
+  onDownload,
   onEditLines,
   onOpenFull,
 }: {
@@ -757,12 +876,11 @@ function CaptionQuickEdit({
   script?: NepaliScript
   draft: CaptionSettings
   onDraftChange: (captions: CaptionSettings) => void
-  onRestyle: (captions: CaptionSettings, segments?: CaptionSegment[]) => Promise<void>
+  preparing: boolean
+  onDownload: () => void
   onEditLines: () => void
   onOpenFull: () => void
 }) {
-  const [applying, setApplying] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const clip = job.clips[0]
   const previewWidth = clip?.width ?? 1080
   const previewHeight = clip?.height ?? 1920
@@ -777,21 +895,7 @@ function CaptionQuickEdit({
         Math.max(previewSegment.start, previewSegment.end - 0.001),
       )
     : undefined
-  const changed = JSON.stringify(draft) !== JSON.stringify(job.settings.captions)
-
   const update = (patch: Partial<CaptionSettings>) => onDraftChange({ ...draft, ...patch })
-
-  const apply = async () => {
-    if (!changed || applying) return
-    setApplying(true)
-    setError(null)
-    try {
-      await onRestyle(draft)
-    } catch (err) {
-      setError(errorMessage(err))
-      setApplying(false)
-    }
-  }
 
   const sizeProgress = ((draft.font_size - 32) / (160 - 32)) * 100
 
@@ -804,7 +908,7 @@ function CaptionQuickEdit({
             Caption style
           </p>
           <p className="mt-1 text-[11px] font-medium leading-4 text-ink">
-            Text edits save instantly; style changes and the MP4 update on the next render.
+            Preview updates live; downloads include the latest subtitles and style.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -900,22 +1004,17 @@ function CaptionQuickEdit({
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
             <p className="max-w-[11rem] text-[9px] leading-4 text-ink-faint">
-              {changed ? 'Preview updates live.' : 'Change size or position to enable.'}
+              The player already shows these changes.
             </p>
             <button
               type="button"
-              onClick={() => void apply()}
-              disabled={!changed || applying}
-              className="inline-flex h-8 items-center justify-center rounded-md border-[1.5px] border-ink bg-tomato px-2.5 text-[10px] font-semibold text-paper-soft shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-tomato-bright active:translate-y-px active:shadow-none disabled:cursor-not-allowed disabled:border-ink/15 disabled:bg-paper-deep disabled:text-ink-faint disabled:shadow-none"
+              onClick={onDownload}
+              disabled={preparing}
+              className="inline-flex h-8 items-center justify-center rounded-md border-[1.5px] border-ink bg-tomato px-2.5 text-[10px] font-semibold text-paper-soft shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-tomato-bright active:translate-y-px active:shadow-none disabled:cursor-wait disabled:border-ink/15 disabled:bg-paper-deep disabled:text-ink-faint disabled:shadow-none"
             >
-              {applying ? 'Starting render…' : 'Apply & re-render'}
+              {preparing ? 'Preparing clip…' : 'Download clip'}
             </button>
           </div>
-          {error ? (
-            <p role="alert" className="text-[9.5px] leading-4 text-tomato">
-              {error}
-            </p>
-          ) : null}
         </div>
       </div>
     </div>
@@ -938,19 +1037,22 @@ function ClipCard({
   index,
   aspect,
   captionMode = false,
+  preparing = false,
   onPreview,
+  onDownload,
 }: {
   clip: Clip
   index: number
   aspect: string
   captionMode?: boolean
+  preparing?: boolean
   onPreview: () => void
+  onDownload: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [thumbnailFailed, setThumbnailFailed] = useState(false)
-  const toast = useToast()
   const tilt = captionMode ? -0.35 : [-0.7, 0.45, -0.3, 0.6][index % 4] || 0
 
   const startPlayback = () => {
@@ -1066,21 +1168,15 @@ function ClipCard({
               {captionMode ? 'FULL' : `#${String(clip.index).padStart(2, '0')}`}
             </span>
           </div>
-          <a
-            href={assetUrl(clip.download_url)}
-            download={clip.filename}
-            onClick={() =>
-              toast.success(
-                captionMode
-                  ? 'Downloading the captioned video.'
-                  : `Downloading clip ${clip.index}.`,
-              )
-            }
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={preparing}
             aria-label={captionMode ? 'Download captioned video' : `Download clip ${clip.index}`}
-            className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border-[1.5px] border-ink bg-paper-soft text-ink shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-tomato hover:text-paper-soft active:translate-y-px active:shadow-none"
+            className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border-[1.5px] border-ink bg-paper-soft text-ink shadow-[1px_2px_0_#211d19] transition hover:-translate-y-px hover:bg-tomato hover:text-paper-soft active:translate-y-px active:shadow-none disabled:cursor-wait disabled:opacity-60"
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
-          </a>
+          </button>
         </div>
 
         <button
@@ -1145,14 +1241,15 @@ function ClipCard({
             <Play className="h-2.5 w-2.5 fill-current" aria-hidden="true" />
             Preview
           </button>
-          <a
-            href={assetUrl(clip.download_url)}
-            download={clip.filename}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[9.5px] font-bold text-ink-soft transition hover:bg-mustard-soft hover:text-ink"
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={preparing}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[9.5px] font-bold text-ink-soft transition hover:bg-mustard-soft hover:text-ink disabled:cursor-wait disabled:opacity-60"
           >
-            Download
+            {preparing ? 'Preparing…' : 'Download'}
             <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
-          </a>
+          </button>
         </div>
       </div>
     </motion.article>

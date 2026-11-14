@@ -681,6 +681,16 @@ def test_latin_text_keeps_the_requested_font(tmp_path: Path) -> None:
     assert "Style: CutClipper,Inter,80" in output.read_text(encoding="utf-8")
 
 
+def test_devanagari_combining_marks_do_not_force_an_extra_wrap() -> None:
+    from app.pipeline import captions as caption_module
+
+    words = [Word(0.0, 0.9, "नमस्ते"), Word(1.0, 1.9, "संसारा।")]
+    groups = caption_module._make_groups(words, font_size=140, target_width=1080)
+    assert len(groups) == 1
+    assert len(groups[0].lines) == 1
+    assert caption_module._estimated_width("नमस्ते संसारा।", 140) < 1080 * 0.81
+
+
 def _timestamp(value: str) -> float:
     hours, minutes, rest = value.split(":")
     seconds = float(rest)
